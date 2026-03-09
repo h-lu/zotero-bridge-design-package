@@ -1,0 +1,1254 @@
+openapi: 3.1.0
+info:
+  title: Zotero Bridge Action API
+  description: Compact public API for ChatGPT Actions.
+  version: 1.0.0
+paths:
+  /healthz:
+    get:
+      tags:
+      - Health
+      summary: Get Health
+      operationId: getHealth
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+      security:
+      - HTTPBearer: []
+  /v1/papers/add-by-doi:
+    post:
+      tags:
+      - Papers
+      summary: Add By Doi
+      operationId: addByDOI
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddByDOIRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddByDOIResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /v1/papers/upload-pdf-action:
+    post:
+      tags:
+      - Papers
+      summary: Upload Pdf Action
+      operationId: uploadPdfAction
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadPdfActionRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadPdfResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /v1/items/search:
+    get:
+      tags:
+      - Items
+      summary: Search Items
+      operationId: searchItems
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Q
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 25
+          minimum: 1
+          default: 10
+          title: Limit
+      - name: includeFulltext
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: true
+          title: Includefulltext
+      - name: includeAttachments
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: true
+          title: Includeattachments
+      - name: includeNotes
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: true
+          title: Includenotes
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/items/{itemKey}:
+    get:
+      tags:
+      - Items
+      summary: Get Item Detail
+      operationId: getItemDetail
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: itemKey
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Itemkey
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemDetailResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/items/{itemKey}/notes:
+    get:
+      tags:
+      - Items
+      summary: List Item Notes
+      operationId: listItemNotes
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: itemKey
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Itemkey
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemNotesResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - Items
+      summary: Create Item Note
+      operationId: createItemNote
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: itemKey
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Itemkey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteWriteRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteWriteResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/items/{itemKey}/fulltext:
+    get:
+      tags:
+      - Items
+      summary: Get Item Fulltext
+      operationId: getItemFulltext
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: itemKey
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Itemkey
+      - name: attachmentKey
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Attachmentkey
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Cursor
+      - name: maxChars
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 12000
+          minimum: 1000
+          default: 8000
+          title: Maxchars
+      - name: preferSource
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^(auto|web|cache)$
+          default: auto
+          title: Prefersource
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FulltextResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/items/{itemKey}/notes/upsert-ai-note:
+    post:
+      tags:
+      - Items
+      summary: Upsert Ai Note
+      operationId: upsertAiNote
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: itemKey
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Itemkey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertAINoteRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpsertAINoteResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/items/{itemKey}/citation:
+    get:
+      tags:
+      - Items
+      summary: Get Item Citation
+      operationId: getItemCitation
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: itemKey
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Itemkey
+      - name: style
+        in: query
+        required: false
+        schema:
+          type: string
+          default: apa
+          title: Style
+      - name: locale
+        in: query
+        required: false
+        schema:
+          type: string
+          default: en-US
+          title: Locale
+      - name: linkwrap
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Linkwrap
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CitationResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/notes/{noteKey}:
+    get:
+      tags:
+      - Notes
+      summary: Get Note Detail
+      operationId: getNoteDetail
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: noteKey
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Notekey
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteDetailResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - Notes
+      summary: Update Note
+      operationId: updateNote
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: noteKey
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Notekey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteWriteRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteWriteResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Notes
+      summary: Delete Note
+      operationId: deleteNote
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: noteKey
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Notekey
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteDeleteResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    AINoteSummary:
+      properties:
+        noteKey:
+          type: string
+          title: Notekey
+        agent:
+          type: string
+          title: Agent
+        noteType:
+          type: string
+          title: Notetype
+        slot:
+          type: string
+          title: Slot
+        dateModified:
+          type: string
+          title: Datemodified
+        tags:
+          items:
+            type: string
+          type: array
+          title: Tags
+      additionalProperties: false
+      type: object
+      required:
+      - noteKey
+      - agent
+      - noteType
+      - slot
+      - dateModified
+      title: AINoteSummary
+    AddByDOIRequest:
+      properties:
+        doi:
+          type: string
+          title: Doi
+        collectionKey:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collectionkey
+        tags:
+          items:
+            type: string
+          type: array
+          title: Tags
+        requestId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Requestid
+      additionalProperties: false
+      type: object
+      required:
+      - doi
+      title: AddByDOIRequest
+    AddByDOIResponse:
+      properties:
+        status:
+          $ref: '#/components/schemas/AddByDOIStatus'
+        itemKey:
+          type: string
+          title: Itemkey
+        title:
+          type: string
+          title: Title
+        DOI:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Doi
+      additionalProperties: false
+      type: object
+      required:
+      - status
+      - itemKey
+      - title
+      title: AddByDOIResponse
+    AddByDOIStatus:
+      type: string
+      enum:
+      - created
+      - existing
+      title: AddByDOIStatus
+    AttachmentSummary:
+      properties:
+        attachmentKey:
+          type: string
+          title: Attachmentkey
+        title:
+          type: string
+          title: Title
+        contentType:
+          type: string
+          title: Contenttype
+        filename:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Filename
+        linkMode:
+          type: string
+          title: Linkmode
+        md5:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Md5
+        mtime:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Mtime
+        isPdf:
+          type: boolean
+          title: Ispdf
+        hasFulltext:
+          type: boolean
+          title: Hasfulltext
+      additionalProperties: false
+      type: object
+      required:
+      - attachmentKey
+      - title
+      - contentType
+      - linkMode
+      - isPdf
+      - hasFulltext
+      title: AttachmentSummary
+    Body_uploadPdfMultipart:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+        itemKey:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Itemkey
+        doi:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Doi
+        collectionKey:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collectionkey
+        tags:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tags
+        createTopLevelAttachmentIfNeeded:
+          type: boolean
+          title: Createtoplevelattachmentifneeded
+          default: false
+        requestId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Requestid
+      type: object
+      required:
+      - file
+      title: Body_uploadPdfMultipart
+    CitationResponse:
+      properties:
+        itemKey:
+          type: string
+          title: Itemkey
+        style:
+          type: string
+          title: Style
+        locale:
+          type: string
+          title: Locale
+        citationHtml:
+          type: string
+          title: Citationhtml
+        bibliographyHtml:
+          type: string
+          title: Bibliographyhtml
+      additionalProperties: false
+      type: object
+      required:
+      - itemKey
+      - style
+      - locale
+      - citationHtml
+      - bibliographyHtml
+      title: CitationResponse
+    Creator:
+      properties:
+        displayName:
+          type: string
+          title: Displayname
+        creatorType:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Creatortype
+      additionalProperties: false
+      type: object
+      required:
+      - displayName
+      title: Creator
+    FulltextResponse:
+      properties:
+        itemKey:
+          type: string
+          title: Itemkey
+        attachmentKey:
+          type: string
+          title: Attachmentkey
+        cursor:
+          type: integer
+          title: Cursor
+        nextCursor:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Nextcursor
+        done:
+          type: boolean
+          title: Done
+        content:
+          type: string
+          title: Content
+        source:
+          $ref: '#/components/schemas/FulltextSource'
+        indexedPages:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Indexedpages
+        totalPages:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Totalpages
+        attachmentCandidates:
+          items:
+            type: string
+          type: array
+          title: Attachmentcandidates
+      additionalProperties: false
+      type: object
+      required:
+      - itemKey
+      - attachmentKey
+      - cursor
+      - done
+      - content
+      - source
+      title: FulltextResponse
+    FulltextSource:
+      type: string
+      enum:
+      - zotero_web_api
+      - local_cache
+      title: FulltextSource
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    HealthConfig:
+      properties:
+        zoteroConfigured:
+          type: boolean
+          title: Zoteroconfigured
+        libraryType:
+          type: string
+          title: Librarytype
+        libraryId:
+          type: string
+          title: Libraryid
+      additionalProperties: false
+      type: object
+      required:
+      - zoteroConfigured
+      - libraryType
+      - libraryId
+      title: HealthConfig
+    HealthResponse:
+      properties:
+        ok:
+          type: boolean
+          title: Ok
+        service:
+          type: string
+          title: Service
+        version:
+          type: string
+          title: Version
+        config:
+          $ref: '#/components/schemas/HealthConfig'
+      additionalProperties: false
+      type: object
+      required:
+      - ok
+      - service
+      - version
+      - config
+      title: HealthResponse
+    ItemDetailResponse:
+      properties:
+        item:
+          $ref: '#/components/schemas/SearchItem'
+      additionalProperties: false
+      type: object
+      required:
+      - item
+      title: ItemDetailResponse
+    ItemNotesResponse:
+      properties:
+        itemKey:
+          type: string
+          title: Itemkey
+        notes:
+          items:
+            $ref: '#/components/schemas/NoteRecord'
+          type: array
+          title: Notes
+        count:
+          type: integer
+          title: Count
+      additionalProperties: false
+      type: object
+      required:
+      - itemKey
+      - notes
+      - count
+      title: ItemNotesResponse
+    NoteDeleteResponse:
+      properties:
+        status:
+          $ref: '#/components/schemas/NoteDeleteStatus'
+        noteKey:
+          type: string
+          title: Notekey
+        itemKey:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Itemkey
+      additionalProperties: false
+      type: object
+      required:
+      - status
+      - noteKey
+      title: NoteDeleteResponse
+    NoteDeleteStatus:
+      type: string
+      enum:
+      - deleted
+      title: NoteDeleteStatus
+    NoteDetailResponse:
+      properties:
+        note:
+          $ref: '#/components/schemas/NoteRecord'
+      additionalProperties: false
+      type: object
+      required:
+      - note
+      title: NoteDetailResponse
+    NoteMode:
+      type: string
+      enum:
+      - replace
+      - append
+      title: NoteMode
+    NoteRecord:
+      properties:
+        noteKey:
+          type: string
+          title: Notekey
+        itemKey:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Itemkey
+        bodyHtml:
+          type: string
+          title: Bodyhtml
+        bodyText:
+          type: string
+          title: Bodytext
+        tags:
+          items:
+            type: string
+          type: array
+          title: Tags
+        dateAdded:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Dateadded
+        dateModified:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Datemodified
+        isAiNote:
+          type: boolean
+          title: Isainote
+        agent:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent
+        noteType:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notetype
+        slot:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Slot
+      additionalProperties: false
+      type: object
+      required:
+      - noteKey
+      - bodyHtml
+      - bodyText
+      - isAiNote
+      title: NoteRecord
+    NoteWriteRequest:
+      properties:
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+        bodyMarkdown:
+          type: string
+          title: Bodymarkdown
+        mode:
+          $ref: '#/components/schemas/NoteMode'
+          default: replace
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Tags
+        requestId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Requestid
+      additionalProperties: false
+      type: object
+      required:
+      - bodyMarkdown
+      title: NoteWriteRequest
+    NoteWriteResponse:
+      properties:
+        status:
+          $ref: '#/components/schemas/NoteWriteStatus'
+        noteKey:
+          type: string
+          title: Notekey
+        itemKey:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Itemkey
+      additionalProperties: false
+      type: object
+      required:
+      - status
+      - noteKey
+      title: NoteWriteResponse
+    NoteWriteStatus:
+      type: string
+      enum:
+      - created
+      - updated
+      title: NoteWriteStatus
+    OpenAIFileRef:
+      properties:
+        name:
+          type: string
+          title: Name
+        id:
+          type: string
+          title: Id
+        mime_type:
+          type: string
+          title: Mime Type
+        download_link:
+          type: string
+          maxLength: 2083
+          minLength: 1
+          format: uri
+          title: Download Link
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      - id
+      - mime_type
+      - download_link
+      title: OpenAIFileRef
+    SearchItem:
+      properties:
+        itemKey:
+          type: string
+          title: Itemkey
+        itemType:
+          type: string
+          title: Itemtype
+        title:
+          type: string
+          title: Title
+        year:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Year
+        DOI:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Doi
+        creators:
+          items:
+            $ref: '#/components/schemas/Creator'
+          type: array
+          title: Creators
+        tags:
+          items:
+            type: string
+          type: array
+          title: Tags
+        collectionKeys:
+          items:
+            type: string
+          type: array
+          title: Collectionkeys
+        attachments:
+          items:
+            $ref: '#/components/schemas/AttachmentSummary'
+          type: array
+          title: Attachments
+        aiNotes:
+          items:
+            $ref: '#/components/schemas/AINoteSummary'
+          type: array
+          title: Ainotes
+      additionalProperties: false
+      type: object
+      required:
+      - itemKey
+      - itemType
+      - title
+      - creators
+      title: SearchItem
+    SearchResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/SearchItem'
+          type: array
+          title: Items
+        count:
+          type: integer
+          title: Count
+      additionalProperties: false
+      type: object
+      required:
+      - items
+      - count
+      title: SearchResponse
+    UploadPdfActionRequest:
+      properties:
+        itemKey:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Itemkey
+        doi:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Doi
+        fileUrl:
+          anyOf:
+          - type: string
+            maxLength: 2083
+            minLength: 1
+            format: uri
+          - type: 'null'
+          title: Fileurl
+        openaiFileIdRefs:
+          items:
+            $ref: '#/components/schemas/OpenAIFileRef'
+          type: array
+          title: Openaifileidrefs
+        collectionKey:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collectionkey
+        tags:
+          items:
+            type: string
+          type: array
+          title: Tags
+        createTopLevelAttachmentIfNeeded:
+          type: boolean
+          title: Createtoplevelattachmentifneeded
+          default: false
+        requestId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Requestid
+      additionalProperties: false
+      type: object
+      title: UploadPdfActionRequest
+    UploadPdfResponse:
+      properties:
+        status:
+          $ref: '#/components/schemas/UploadPdfStatus'
+        itemKey:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Itemkey
+        attachmentKey:
+          type: string
+          title: Attachmentkey
+        filename:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Filename
+        contentType:
+          type: string
+          title: Contenttype
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+      additionalProperties: false
+      type: object
+      required:
+      - status
+      - attachmentKey
+      - contentType
+      title: UploadPdfResponse
+    UploadPdfStatus:
+      type: string
+      enum:
+      - created
+      - updated
+      title: UploadPdfStatus
+    UpsertAINoteRequest:
+      properties:
+        agent:
+          type: string
+          title: Agent
+        noteType:
+          type: string
+          title: Notetype
+        slot:
+          type: string
+          title: Slot
+          default: default
+        mode:
+          $ref: '#/components/schemas/NoteMode'
+          default: replace
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+        bodyMarkdown:
+          type: string
+          title: Bodymarkdown
+        tags:
+          items:
+            type: string
+          type: array
+          title: Tags
+        model:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model
+        sourceAttachmentKey:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Sourceattachmentkey
+        sourceCursorStart:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Sourcecursorstart
+        sourceCursorEnd:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Sourcecursorend
+        requestId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Requestid
+      additionalProperties: false
+      type: object
+      required:
+      - agent
+      - noteType
+      - bodyMarkdown
+      title: UpsertAINoteRequest
+    UpsertAINoteResponse:
+      properties:
+        status:
+          $ref: '#/components/schemas/UpsertAINoteStatus'
+        noteKey:
+          type: string
+          title: Notekey
+        itemKey:
+          type: string
+          title: Itemkey
+        agent:
+          type: string
+          title: Agent
+        noteType:
+          type: string
+          title: Notetype
+        slot:
+          type: string
+          title: Slot
+      additionalProperties: false
+      type: object
+      required:
+      - status
+      - noteKey
+      - itemKey
+      - agent
+      - noteType
+      - slot
+      title: UpsertAINoteResponse
+    UpsertAINoteStatus:
+      type: string
+      enum:
+      - created
+      - updated
+      title: UpsertAINoteStatus
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+  securitySchemes:
+    HTTPBearer:
+      type: http
+      scheme: bearer
+servers:
+- url: https://zotero-bridge.example.com
+  description: Public bridge endpoint
