@@ -439,9 +439,14 @@ class BridgeService:
                 message="Local cache source is not enabled",
                 status_code=404,
             )
-        await self._zotero.get_item(item_key)
-        children = await self._zotero.get_children(item_key)
-        selection = self._fulltext.select_attachment(children, attachment_key)
+        item = await self._zotero.get_item(item_key)
+        item_data = item.get("data", {})
+        fulltext_candidates = (
+            [item]
+            if item_data.get("itemType") == "attachment"
+            else await self._zotero.get_children(item_key)
+        )
+        selection = self._fulltext.select_attachment(fulltext_candidates, attachment_key)
         attachment_key_resolved = str(selection.attachment.get("key"))
         if prefer_source == "cache":
             return self._build_cached_fulltext_response(
@@ -1292,43 +1297,50 @@ class BridgeService:
         current_url = self._normalize_remote_download_url(url)
         for _ in range(REMOTE_DOWNLOAD_MAX_REDIRECTS + 1):
             await self._assert_safe_remote_download_url(current_url)
-            async with self._http_client.stream(
-                "GET",
-                str(current_url),
-                timeout=120.0,
-                follow_redirects=False,
-            ) as response:
-                if response.status_code in {301, 302, 303, 307, 308}:
-                    location = response.headers.get("Location")
-                    if not location:
+            try:
+                async with self._http_client.stream(
+                    "GET",
+                    str(current_url),
+                    timeout=120.0,
+                    follow_redirects=False,
+                ) as response:
+                    if response.status_code in {301, 302, 303, 307, 308}:
+                        location = response.headers.get("Location")
+                        if not location:
+                            raise BridgeError(
+                                code="DOWNLOAD_FAILED",
+                                message="Remote download redirect was missing a location header",
+                                status_code=502,
+                                upstream_status=response.status_code,
+                            )
+                        current_url = self._normalize_remote_download_url(
+                            urljoin(str(current_url), location)
+                        )
+                        continue
+                    if response.status_code != 200:
                         raise BridgeError(
                             code="DOWNLOAD_FAILED",
-                            message="Remote download redirect was missing a location header",
+                            message="Unable to download remote PDF",
                             status_code=502,
                             upstream_status=response.status_code,
                         )
-                    current_url = self._normalize_remote_download_url(
-                        urljoin(str(current_url), location)
-                    )
-                    continue
-                if response.status_code != 200:
-                    raise BridgeError(
-                        code="DOWNLOAD_FAILED",
-                        message="Unable to download remote PDF",
-                        status_code=502,
-                        upstream_status=response.status_code,
-                    )
-                content = bytearray()
-                content_type = response.headers.get("Content-Type")
-                async for chunk in response.aiter_bytes():
-                    content.extend(chunk)
-                    if len(content) > self._settings.max_upload_file_bytes:
-                        raise BridgeError(
-                            code="FILE_TOO_LARGE",
-                            message="Downloaded file exceeds configured size limit",
-                            status_code=413,
-                        )
-                return bytes(content), content_type
+                    content = bytearray()
+                    content_type = response.headers.get("Content-Type")
+                    async for chunk in response.aiter_bytes():
+                        content.extend(chunk)
+                        if len(content) > self._settings.max_upload_file_bytes:
+                            raise BridgeError(
+                                code="FILE_TOO_LARGE",
+                                message="Downloaded file exceeds configured size limit",
+                                status_code=413,
+                            )
+                    return bytes(content), content_type
+            except httpx.RequestError as exc:
+                raise BridgeError(
+                    code="DOWNLOAD_FAILED",
+                    message="Unable to download remote PDF",
+                    status_code=502,
+                ) from exc
         raise BridgeError(
             code="BAD_REQUEST",
             message="Remote file URL redirected too many times",
