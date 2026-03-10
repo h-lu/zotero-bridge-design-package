@@ -313,15 +313,22 @@ class ZoteroClient:
             files = {"file": ("upload.bin", upload_body)}
             body = None
 
-        response = await self._client.post(
-            upload_url,
-            content=body,
-            data=data,
-            files=files,
-            headers=headers,
-            timeout=120.0,
-            follow_redirects=True,
-        )
+        try:
+            response = await self._client.post(
+                upload_url,
+                content=body,
+                data=data,
+                files=files,
+                headers=headers,
+                timeout=120.0,
+                follow_redirects=True,
+            )
+        except httpx.RequestError as exc:
+            raise BridgeError(
+                code="UPLOAD_FAILED",
+                message="Authorized file upload failed",
+                status_code=502,
+            ) from exc
         if response.status_code not in {200, 201, 204}:
             raise BridgeError(
                 code="UPLOAD_FAILED",

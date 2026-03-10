@@ -588,6 +588,63 @@ async def test_fulltext_endpoint_falls_back_to_local_cache(
     assert payload["content"] == "Local fallback content for pdf extraction."
 
 
+async def test_fulltext_endpoint_accepts_top_level_attachment_items(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    from app.main import app
+
+    attachment = zotero_item(
+        "ATTTOP01",
+        {
+            "itemType": "attachment",
+            "title": "top-level.pdf",
+            "filename": "top-level.pdf",
+            "contentType": "application/pdf",
+            "linkMode": "imported_file",
+            "dateModified": "2025-01-01T00:00:00Z",
+        },
+    )
+
+    store = app.state.bridge_service._local_fulltext_store
+    assert store is not None
+    store.write_payload(
+        attachment_key="ATTTOP01",
+        item_key=None,
+        filename="top-level.pdf",
+        fulltext_payload={
+            "content": "Top-level attachment local cache content.",
+            "indexedPages": 1,
+            "totalPages": 1,
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items/ATTTOP01":
+            return httpx.Response(200, json=attachment)
+        if request.method == "GET" and request.url.path == "/users/123456/items/ATTTOP01/fulltext":
+            return httpx.Response(404)
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/ATTTOP01/fulltext",
+        headers=auth_headers,
+        params={"maxChars": 1000},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["itemKey"] == "ATTTOP01"
+    assert payload["attachmentKey"] == "ATTTOP01"
+    assert payload["source"] == "local_cache"
+    assert payload["content"] == "Top-level attachment local cache content."
+
+
 async def test_upsert_ai_note_create_then_update(
     async_client: httpx.AsyncClient,
     auth_headers: dict[str, str],
@@ -1932,6 +1989,33 @@ async def test_upload_pdf_action_populates_local_fulltext_cache(
 
 
 @pytest.mark.asyncio
+async def test_upload_pdf_action_returns_download_failed_on_transport_error(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "files.example.com":
+            raise httpx.ConnectError("dns failure", request=request)
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.post(
+        "/v1/papers/upload-pdf-action",
+        headers=auth_headers,
+        json={
+            "fileUrl": "https://files.example.com/paper.pdf",
+            "createTopLevelAttachmentIfNeeded": True,
+        },
+    )
+
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "DOWNLOAD_FAILED"
+    assert response.json()["error"]["message"] == "Unable to download remote PDF"
+
+
+@pytest.mark.asyncio
 async def test_upload_pdf_action_rejects_loopback_file_url(
     async_client: httpx.AsyncClient,
     auth_headers: dict[str, str],
@@ -2013,6 +2097,68 @@ async def test_upload_pdf_action_rejects_multiple_files(
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "BAD_REQUEST"
+
+
+async def test_upload_pdf_multipart_returns_upload_failed_on_transport_error(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    parent = zotero_item(
+        "ITEM0001",
+        {"itemType": "journalArticle", "title": "Paper", "creators": []},
+    )
+    template = {
+        "itemType": "attachment",
+        "linkMode": "imported_file",
+        "title": "",
+        "filename": "",
+        "contentType": "",
+        "tags": [],
+        "collections": [],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "upload.example.com":
+            raise httpx.ConnectError("tls failure", request=request)
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001":
+            return httpx.Response(200, json=parent)
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001/children":
+            return httpx.Response(200, json=[])
+        if request.method == "GET" and request.url.path == "/items/new":
+            return httpx.Response(200, json=template)
+        if request.method == "POST" and request.url.path == "/users/123456/items":
+            return httpx.Response(
+                200,
+                json={"successful": {"0": {"key": "ATTACH01", "version": 1}}},
+            )
+        if request.method == "POST" and request.url.path == "/users/123456/items/ATTACH01/file":
+            return httpx.Response(
+                200,
+                json={
+                    "url": "https://upload.example.com/file",
+                    "uploadKey": "UP-ATTACH01",
+                    "prefix": "",
+                    "suffix": "",
+                    "contentType": "application/octet-stream",
+                },
+            )
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.post(
+        "/v1/papers/upload-pdf-multipart",
+        headers=auth_headers,
+        data={"itemKey": "ITEM0001", "requestId": "upload-multipart-transport-1"},
+        files={"file": ("paper.pdf", PDF_BYTES, "application/pdf")},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "UPLOAD_FAILED"
+    assert response.json()["error"]["message"] == "Authorized file upload failed"
 
 
 async def test_upload_pdf_multipart_rejects_non_pdf_bytes(

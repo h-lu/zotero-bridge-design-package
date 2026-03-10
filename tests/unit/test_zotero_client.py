@@ -52,3 +52,28 @@ async def test_get_children_fetches_all_pages(test_env: None) -> None:
     assert len(children) == 125
     assert children[0]["key"] == "CHILD0000"
     assert children[-1]["key"] == "CHILD0124"
+
+
+@pytest.mark.asyncio
+async def test_upload_to_authorized_url_wraps_transport_errors(test_env: None) -> None:
+    settings = get_settings()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("dns failure", request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        zotero_client = ZoteroClient(settings=settings, client=client)
+        with pytest.raises(BridgeError) as exc_info:
+            await zotero_client.upload_to_authorized_url(
+                {
+                    "url": "https://upload.example.com/file",
+                    "prefix": "",
+                    "suffix": "",
+                    "contentType": "application/octet-stream",
+                },
+                b"%PDF-1.4",
+            )
+
+    assert exc_info.value.code == "UPLOAD_FAILED"
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.upstream_status is None
