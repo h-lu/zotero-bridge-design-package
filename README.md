@@ -7,12 +7,26 @@ This package specifies a production-ready **REST bridge** between ChatGPT/Codex 
 - **Write to Zotero** through the **Zotero Web API v3**
   - create bibliographic items from DOI metadata
   - upload PDF attachments
+  - add tags and collections to existing items
   - write AI reading outputs back to Zotero as child notes
+  - merge duplicate bibliographic items
 - **Read from Zotero** through the **Zotero Web API v3**
+  - browse library items with pagination and filters
+  - inspect library stats and recent changes
   - search library items
+  - run advanced fielded searches across title, creator, abstract, venue, DOI, tags, notes, and full text
+  - resolve exact items by DOI/title
+  - list collections and tags
+  - batch fetch item records
+  - find likely duplicate items
+  - follow related-item links
   - resolve attachments
   - retrieve chunked full text
+  - preview full text across multiple items in one request
+  - build review-ready bundles with citations, notes, related items, and full-text previews
   - retrieve formatted citations/bibliographies
+- **Discover papers outside Zotero**
+  - query OpenAlex for recent or highly cited papers related to a topic
 - **Expose a public HTTPS API**
   - ChatGPT uses the API as a **GPT Action**
   - Codex can use the same API directly over HTTP
@@ -39,12 +53,31 @@ This package specifies a production-ready **REST bridge** between ChatGPT/Codex 
 
 ### MVP (build now)
 - `/healthz`
+- `GET /v1/library/stats`
+- `GET /v1/items`
+- `POST /v1/items/batch`
+- `GET /v1/items/changes`
+- `GET /v1/items/resolve`
+- `GET /v1/items/duplicates`
+- `POST /v1/items/duplicates/merge`
+- `GET /v1/items/search-advanced`
+- `POST /v1/items/review-pack`
 - `POST /v1/papers/add-by-doi`
 - `POST /v1/papers/upload-pdf-action`
 - `POST /v1/papers/upload-pdf-multipart`
+- `GET /v1/collections`
+- `GET /v1/discovery/search`
+- `GET /v1/tags`
 - `GET /v1/items/search`
+- `POST /v1/items/fulltext/batch-preview`
 - `GET /v1/items/{itemKey}`
+- `GET /v1/items/{itemKey}/related`
+- `POST /v1/items/{itemKey}/tags`
+- `DELETE /v1/items/{itemKey}/tags/{tag}`
+- `POST /v1/items/{itemKey}/collections`
 - `GET /v1/items/{itemKey}/fulltext`
+- `GET /v1/items/{itemKey}/notes`
+- `POST /v1/items/{itemKey}/notes`
 - `POST /v1/items/{itemKey}/notes/upsert-ai-note`
 - `GET /v1/items/{itemKey}/citation`
 
@@ -88,7 +121,7 @@ The bridge writes ChatGPT/Codex outputs back into Zotero as child notes with mac
 These tags make note upsert deterministic without relying on brittle text search.
 
 ### 4) The API is public-HTTPS only
-Use your Singapore server as the public bridge endpoint. Put TLS in front with Caddy/Nginx. ChatGPT Actions should call the bridge domain over HTTPS on port 443.
+Use your Singapore server as the public bridge endpoint. Put TLS in front with Caddy/Nginx. Standard port 443 is preferred, but the bridge also works behind an HTTPS listener on a non-standard port such as `:8888`.
 
 ## File guide
 
@@ -122,7 +155,9 @@ Use your Singapore server as the public bridge endpoint. Put TLS in front with C
 Use `openapi.actions.yaml` in a Custom GPT Action:
 - auth type: **API Key**
 - auth style: **Bearer**
-- all write endpoints are marked consequential
+- include the browse/resolve endpoints so the model can page, filter, and inspect the library without guessing search keywords
+- expose the stats/changes/related/fulltext-preview endpoints too if you want the model to maintain a lightweight sync view of the library
+- include `search-advanced`, `review-pack`, and `discovery/search` if the model will do literature review or topic scouting
 
 ### Codex
 For v1, do **not** build MCP first.

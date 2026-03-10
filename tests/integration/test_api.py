@@ -29,6 +29,1176 @@ async def test_healthz(async_client: httpx.AsyncClient, auth_headers: dict[str, 
     assert payload["config"]["libraryId"] == "123456"
 
 
+async def test_list_items_endpoint_supports_pagination_and_item_type_filter(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    paper_one = zotero_item(
+        "ITEM0002",
+        {
+            "itemType": "journalArticle",
+            "title": "Alpha Paper",
+            "date": "2024-01-01",
+            "DOI": "10.1000/alpha",
+            "creators": [{"name": "Ada Lovelace", "creatorType": "author"}],
+            "tags": [{"tag": "ml"}],
+            "collections": ["COLL1"],
+        },
+    )
+    paper_two = zotero_item(
+        "ITEM0003",
+        {
+            "itemType": "journalArticle",
+            "title": "Beta Paper",
+            "date": "2025-02-02",
+            "DOI": "10.1000/beta",
+            "creators": [{"name": "Grace Hopper", "creatorType": "author"}],
+            "tags": [],
+            "collections": [],
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items/top":
+            assert request.url.params.get("format") == "json"
+            assert request.url.params.get("start") == "0"
+            assert request.url.params.get("limit") == "2"
+            assert request.url.params.get("itemType") == "journalArticle"
+            assert request.url.params.get("sort") == "title"
+            assert request.url.params.get("direction") == "asc"
+            return httpx.Response(
+                200,
+                json=[paper_one, paper_two],
+                headers={"Total-Results": "3"},
+            )
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items",
+        headers=auth_headers,
+        params={
+            "start": 0,
+            "limit": 2,
+            "itemType": "journalArticle",
+            "sort": "title",
+            "direction": "asc",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 2
+    assert payload["total"] == 3
+    assert payload["start"] == 0
+    assert payload["limit"] == 2
+    assert [item["itemKey"] for item in payload["items"]] == ["ITEM0002", "ITEM0003"]
+    assert payload["items"][0]["title"] == "Alpha Paper"
+    assert payload["items"][0]["attachments"] == []
+    assert payload["items"][0]["aiNotes"] == []
+
+
+async def test_search_endpoint_returns_pagination_and_search_hints(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    parent = zotero_item(
+        "ITEM0001",
+        {
+            "itemType": "journalArticle",
+            "title": "Alpha Search Paper",
+            "date": "2024-01-01",
+            "DOI": "10.1000/alpha-search",
+            "creators": [{"name": "Ada Lovelace", "creatorType": "author"}],
+            "tags": [{"tag": "alpha"}],
+            "collections": [],
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items":
+            assert request.url.params.get("q") == "alpha"
+            assert request.url.params.get("start") == "0"
+            assert request.url.params.get("limit") == "100"
+            assert request.url.params.get("sort") == "title"
+            assert request.url.params.get("direction") == "asc"
+            return httpx.Response(200, json=[parent], headers={"Total-Results": "1"})
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001":
+            return httpx.Response(200, json=parent)
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/search",
+        headers=auth_headers,
+        params={
+            "q": "alpha",
+            "start": 0,
+            "limit": 5,
+            "includeFulltext": "false",
+            "includeAttachments": "false",
+            "includeNotes": "false",
+            "sort": "title",
+            "direction": "asc",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["total"] == 1
+    assert payload["start"] == 0
+    assert payload["limit"] == 5
+    assert payload["nextStart"] is None
+    assert payload["items"][0]["itemKey"] == "ITEM0001"
+    assert payload["items"][0]["searchHints"][0]["field"] == "title"
+
+
+async def test_search_endpoint_only_resolves_items_needed_for_current_page(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    first = zotero_item(
+        "ITEM0001",
+        {
+            "itemType": "journalArticle",
+            "title": "Alpha Paper",
+            "date": "2024-01-01",
+            "creators": [],
+            "tags": [],
+            "collections": [],
+        },
+    )
+    second = zotero_item(
+        "ITEM0002",
+        {
+            "itemType": "journalArticle",
+            "title": "Beta Paper",
+            "date": "2024-01-02",
+            "creators": [],
+            "tags": [],
+            "collections": [],
+        },
+    )
+    third = zotero_item(
+        "ITEM0003",
+        {
+            "itemType": "journalArticle",
+            "title": "Gamma Paper",
+            "date": "2024-01-03",
+            "creators": [],
+            "tags": [],
+            "collections": [],
+        },
+    )
+    state: dict[str, list[str]] = {"item_gets": []}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items":
+            return httpx.Response(
+                200,
+                json=[first, second, third],
+                headers={"Total-Results": "3"},
+            )
+        if request.method == "GET" and request.url.path.startswith("/users/123456/items/"):
+            state["item_gets"].append(request.url.path.rsplit("/", 1)[-1])
+            return httpx.Response(200, json=second)
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/search",
+        headers=auth_headers,
+        params={
+            "q": "paper",
+            "start": 1,
+            "limit": 1,
+            "includeFulltext": "false",
+            "includeAttachments": "false",
+            "includeNotes": "false",
+            "sort": "title",
+            "direction": "asc",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["total"] == 3
+    assert payload["nextStart"] == 2
+    assert payload["items"][0]["itemKey"] == "ITEM0002"
+    assert set(state["item_gets"]).issubset({"ITEM0002"})
+    assert len(state["item_gets"]) <= 1
+
+
+async def test_search_endpoint_re_sorts_local_cache_only_hits_before_pagination(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    from app.main import app
+
+    alpha = zotero_item(
+        "ITEM0001",
+        {
+            "itemType": "journalArticle",
+            "title": "Alpha Cache Paper",
+            "date": "2024-01-01",
+            "dateAdded": "2024-01-01T00:00:00Z",
+            "dateModified": "2024-01-01T00:00:00Z",
+            "creators": [],
+            "tags": [],
+            "collections": [],
+        },
+    )
+    beta = zotero_item(
+        "ITEM0002",
+        {
+            "itemType": "journalArticle",
+            "title": "Beta Upstream Paper",
+            "date": "2024-01-02",
+            "dateAdded": "2024-01-02T00:00:00Z",
+            "dateModified": "2024-01-02T00:00:00Z",
+            "creators": [],
+            "tags": [],
+            "collections": [],
+        },
+    )
+    store = app.state.bridge_service._local_fulltext_store
+    assert store is not None
+    store.write_payload(
+        attachment_key="ATTACHCACHE1",
+        item_key="ITEM0001",
+        filename="alpha.pdf",
+        fulltext_payload={
+            "content": "cache ordering token",
+            "indexedPages": 1,
+            "totalPages": 1,
+        },
+    )
+    state: dict[str, list[str]] = {"item_gets": []}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items":
+            if request.url.params.get("itemKey"):
+                return httpx.Response(200, json=[alpha], headers={"Total-Results": "1"})
+            return httpx.Response(200, json=[beta], headers={"Total-Results": "1"})
+        if request.method == "GET" and request.url.path == "/users/123456/items/top":
+            return httpx.Response(200, json=[alpha, beta], headers={"Total-Results": "2"})
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001":
+            state["item_gets"].append("ITEM0001")
+            return httpx.Response(200, json=alpha)
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0002":
+            state["item_gets"].append("ITEM0002")
+            return httpx.Response(200, json=beta)
+        if request.method == "GET" and request.url.path in {
+            "/users/123456/items/ITEM0001/children",
+            "/users/123456/items/ITEM0002/children",
+        }:
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/search",
+        headers=auth_headers,
+        params={
+            "q": "cache ordering token",
+            "start": 0,
+            "limit": 1,
+            "includeFulltext": "true",
+            "includeAttachments": "false",
+            "includeNotes": "false",
+            "sort": "title",
+            "direction": "asc",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["total"] == 2
+    assert payload["nextStart"] == 1
+    assert payload["items"][0]["itemKey"] == "ITEM0001"
+    assert payload["items"][0]["searchHints"][0]["field"] == "local_cache_fulltext"
+    assert state["item_gets"] == ["ITEM0001"]
+
+
+async def test_search_endpoint_returns_local_note_only_match(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    parent = zotero_item(
+        "ITEM0001",
+        {
+            "itemType": "journalArticle",
+            "title": "Generative AI at Work",
+            "creators": [{"name": "Erik Brynjolfsson", "creatorType": "author"}],
+            "tags": [],
+            "collections": [],
+        },
+    )
+    ai_note = zotero_item(
+        "NOTE0001",
+        {
+            "itemType": "note",
+            "parentItem": "ITEM0001",
+            "note": "<p>Tacit knowledge transfer helps novice workers.</p>",
+            "tags": [{"tag": "generated-note"}],
+            "collections": [],
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items":
+            return httpx.Response(200, json=[], headers={"Total-Results": "0"})
+        if request.method == "GET" and request.url.path == "/users/123456/items/top":
+            return httpx.Response(200, json=[parent], headers={"Total-Results": "1"})
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001":
+            return httpx.Response(200, json=parent)
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001/children":
+            return httpx.Response(200, json=[ai_note])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/search",
+        headers=auth_headers,
+        params={
+            "q": "tacit knowledge",
+            "includeFulltext": "false",
+            "includeNotes": "true",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["items"][0]["itemKey"] == "ITEM0001"
+    assert payload["items"][0]["searchHints"][0]["field"] == "note"
+    assert payload["items"][0]["score"] and payload["items"][0]["score"] > 0
+
+
+async def test_search_advanced_endpoint_filters_on_abstract_venue_and_year(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    matching = zotero_item(
+        "ITEM0001",
+        {
+            "itemType": "journalArticle",
+            "title": "Knowledge Spillovers in Trade",
+            "date": "2023-01-01",
+            "abstractNote": "This paper studies spillovers across exporting firms.",
+            "publicationTitle": "Journal of Trade",
+            "creators": [{"name": "Ada Lovelace", "creatorType": "author"}],
+            "tags": [{"tag": "trade"}],
+            "collections": [],
+        },
+    )
+    non_matching = zotero_item(
+        "ITEM0002",
+        {
+            "itemType": "journalArticle",
+            "title": "Unrelated Paper",
+            "date": "2018-01-01",
+            "abstractNote": "This paper studies something else.",
+            "publicationTitle": "Economic History Review",
+            "creators": [{"name": "Grace Hopper", "creatorType": "author"}],
+            "tags": [],
+            "collections": [],
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items":
+            return httpx.Response(
+                200,
+                json=[matching],
+                headers={"Total-Results": "1"},
+            )
+        if request.method == "GET" and request.url.path == "/users/123456/items/top":
+            return httpx.Response(
+                200,
+                json=[matching, non_matching],
+                headers={"Total-Results": "2"},
+            )
+        if request.method == "GET" and request.url.path in {
+            "/users/123456/items/ITEM0001/children",
+            "/users/123456/items/ITEM0002/children",
+        }:
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/search-advanced",
+        headers=auth_headers,
+        params={
+            "q": "spillovers",
+            "fields": "abstract,venue",
+            "yearFrom": 2020,
+            "itemType": "journalArticle",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["items"][0]["itemKey"] == "ITEM0001"
+    assert payload["items"][0]["abstractNote"] == (
+        "This paper studies spillovers across exporting firms."
+    )
+    assert payload["items"][0]["venue"] == "Journal of Trade"
+    assert payload["items"][0]["searchHints"][0]["field"] == "abstract"
+
+
+async def test_search_advanced_sorts_by_relevance_and_normalizes_abstract_text(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    title_match = zotero_item(
+        "ITEM0001",
+        {
+            "itemType": "journalArticle",
+            "title": "Knowledge Spillovers in Trade",
+            "abstractNote": "<jats:p>Background only.</jats:p>",
+            "creators": [{"name": "Ada Lovelace", "creatorType": "author"}],
+            "tags": [],
+            "collections": [],
+            "dateModified": "2026-03-10T12:00:00Z",
+        },
+    )
+    abstract_match = zotero_item(
+        "ITEM0002",
+        {
+            "itemType": "journalArticle",
+            "title": "Trade and Firms",
+            "abstractNote": (
+                "<jats:p>This paper studies knowledge spillovers across firms.</jats:p>"
+            ),
+            "creators": [{"name": "Grace Hopper", "creatorType": "author"}],
+            "tags": [],
+            "collections": [],
+            "dateModified": "2026-03-10T12:05:00Z",
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items":
+            return httpx.Response(
+                200,
+                json=[title_match, abstract_match],
+                headers={"Total-Results": "2"},
+            )
+        if request.method == "GET" and request.url.path == "/users/123456/items/top":
+            return httpx.Response(
+                200,
+                json=[title_match, abstract_match],
+                headers={"Total-Results": "2"},
+            )
+        if request.method == "GET" and request.url.path in {
+            "/users/123456/items/ITEM0001/children",
+            "/users/123456/items/ITEM0002/children",
+        }:
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/search-advanced",
+        headers=auth_headers,
+        params={
+            "q": "knowledge spillovers",
+            "fields": "title,abstract",
+            "sort": "relevance",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 2
+    assert payload["items"][0]["itemKey"] == "ITEM0001"
+    assert payload["items"][0]["score"] > payload["items"][1]["score"]
+    assert payload["items"][1]["abstractNote"] == (
+        "This paper studies knowledge spillovers across firms."
+    )
+    assert "<jats:" not in payload["items"][1]["searchHints"][0]["snippet"]
+
+
+async def test_search_advanced_note_field_matches_local_note_text(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    parent = zotero_item(
+        "ITEM0001",
+        {
+            "itemType": "journalArticle",
+            "title": "Generative AI at Work",
+            "creators": [{"name": "Erik Brynjolfsson", "creatorType": "author"}],
+            "tags": [],
+            "collections": [],
+        },
+    )
+    ai_note = zotero_item(
+        "NOTE0001",
+        {
+            "itemType": "note",
+            "parentItem": "ITEM0001",
+            "note": (
+                "<p>The mechanism is consistent with tacit knowledge transfer "
+                "from stronger workers to weaker workers.</p>"
+            ),
+            "tags": [{"tag": "generated-note"}, {"tag": "zbridge"}],
+            "collections": [],
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items":
+            return httpx.Response(200, json=[parent], headers={"Total-Results": "1"})
+        if request.method == "GET" and request.url.path == "/users/123456/items/top":
+            return httpx.Response(
+                200,
+                json=[parent],
+                headers={"Total-Results": "1"},
+            )
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001":
+            return httpx.Response(200, json=parent)
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001/children":
+            return httpx.Response(200, json=[ai_note])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/search-advanced",
+        headers=auth_headers,
+        params={
+            "q": "tacit knowledge",
+            "fields": "note",
+            "includeNotes": "true",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["items"][0]["itemKey"] == "ITEM0001"
+    assert payload["items"][0]["searchHints"][0]["field"] == "note"
+    assert "tacit knowledge" in payload["items"][0]["searchHints"][0]["snippet"].lower()
+
+
+async def test_search_advanced_has_fulltext_filter_distinguishes_attachment_types(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    article = zotero_item(
+        "ITEM0001",
+        {
+            "itemType": "journalArticle",
+            "title": "Parent Article",
+            "creators": [],
+            "tags": [],
+            "collections": [],
+        },
+    )
+    pdf_attachment = zotero_item(
+        "ATTPDF01",
+        {
+            "itemType": "attachment",
+            "title": "fulltext.pdf",
+            "filename": "fulltext.pdf",
+            "contentType": "application/pdf",
+            "linkMode": "imported_file",
+            "creators": [],
+            "tags": [],
+            "collections": [],
+        },
+    )
+    snapshot_attachment = zotero_item(
+        "ATTHMT01",
+        {
+            "itemType": "attachment",
+            "title": "snapshot.html",
+            "filename": "snapshot.html",
+            "contentType": "text/html",
+            "linkMode": "imported_url",
+            "creators": [],
+            "tags": [],
+            "collections": [],
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items/top":
+            return httpx.Response(
+                200,
+                json=[article, pdf_attachment, snapshot_attachment],
+                headers={"Total-Results": "3"},
+            )
+        if request.method == "GET" and request.url.path in {
+            "/users/123456/items/ITEM0001/children",
+            "/users/123456/items/ATTPDF01/children",
+            "/users/123456/items/ATTHMT01/children",
+        }:
+            return httpx.Response(200, json=[])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    with_fulltext = await async_client.get(
+        "/v1/items/search-advanced",
+        headers=auth_headers,
+        params={"hasFulltext": "true", "itemType": "attachment"},
+    )
+    without_fulltext = await async_client.get(
+        "/v1/items/search-advanced",
+        headers=auth_headers,
+        params={"hasFulltext": "false", "itemType": "attachment"},
+    )
+
+    assert with_fulltext.status_code == 200
+    assert with_fulltext.json()["items"][0]["itemKey"] == "ATTPDF01"
+    assert with_fulltext.json()["count"] == 1
+    assert without_fulltext.status_code == 200
+    assert without_fulltext.json()["items"][0]["itemKey"] == "ATTHMT01"
+    assert without_fulltext.json()["count"] == 1
+
+
+async def test_batch_get_items_endpoint_returns_items_and_not_found_keys(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    parent = zotero_item(
+        "ITEM0001",
+        {
+            "itemType": "journalArticle",
+            "title": "Batch Paper",
+            "date": "2024-01-01",
+            "DOI": "10.1000/batch",
+            "creators": [{"name": "Ada Lovelace", "creatorType": "author"}],
+            "tags": [],
+            "collections": [],
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items":
+            assert request.url.params.get("itemKey") == "ITEM0001"
+            return httpx.Response(200, json=[parent], headers={"Total-Results": "1"})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.post(
+        "/v1/items/batch",
+        headers=auth_headers,
+        json={
+            "itemKeys": ["ITEM0001", "MISSING99"],
+            "includeAttachments": False,
+            "includeNotes": False,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["items"][0]["itemKey"] == "ITEM0001"
+    assert payload["notFoundKeys"] == ["MISSING99"]
+
+
+async def test_resolve_items_endpoint_finds_exact_doi_matches(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    parent = zotero_item(
+        "ITEM0001",
+        {
+            "itemType": "journalArticle",
+            "title": "Resolved Paper",
+            "date": "2024-01-01",
+            "DOI": "10.1000/resolve",
+            "creators": [{"name": "Ada Lovelace", "creatorType": "author"}],
+            "tags": [],
+            "collections": [],
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items":
+            assert request.url.params.get("q") == "10.1000/resolve"
+            return httpx.Response(200, json=[parent], headers={"Total-Results": "1"})
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001":
+            return httpx.Response(200, json=parent)
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/resolve",
+        headers=auth_headers,
+        params={"doi": "10.1000/resolve"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["strategy"] == "doi"
+    assert payload["count"] == 1
+    assert payload["items"][0]["itemKey"] == "ITEM0001"
+
+
+async def test_resolve_items_endpoint_falls_back_to_full_library_scan_for_doi(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    parent = zotero_item(
+        "ITEM0001",
+        {
+            "itemType": "journalArticle",
+            "title": "Resolved By Fallback",
+            "date": "2024-01-01",
+            "DOI": "10.1000/fallback",
+            "creators": [{"name": "Ada Lovelace", "creatorType": "author"}],
+            "tags": [],
+            "collections": [],
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items":
+            return httpx.Response(200, json=[], headers={"Total-Results": "0"})
+        if request.method == "GET" and request.url.path == "/users/123456/items/top":
+            assert request.url.params.get("sort") == "dateModified"
+            return httpx.Response(200, json=[parent], headers={"Total-Results": "1"})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/resolve",
+        headers=auth_headers,
+        params={"doi": "10.1000/fallback"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["strategy"] == "doi"
+    assert payload["count"] == 1
+    assert payload["items"][0]["itemKey"] == "ITEM0001"
+
+
+async def test_duplicates_endpoint_groups_title_and_doi_matches(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    first = zotero_item(
+        "ITEM0001",
+        {
+            "itemType": "journalArticle",
+            "title": "Duplicate Paper",
+            "date": "2024-01-01",
+            "DOI": "10.1000/dup",
+            "creators": [{"name": "Ada Lovelace", "creatorType": "author"}],
+            "tags": [],
+            "collections": [],
+        },
+    )
+    second = zotero_item(
+        "ITEM0002",
+        {
+            "itemType": "journalArticle",
+            "title": "Duplicate Paper",
+            "date": "2024-01-02",
+            "DOI": "10.1000/dup",
+            "creators": [{"name": "Grace Hopper", "creatorType": "author"}],
+            "tags": [],
+            "collections": [],
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items/top":
+            return httpx.Response(
+                200,
+                json=[first, second],
+                headers={"Total-Results": "2"},
+            )
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/duplicates",
+        headers=auth_headers,
+        params={"by": "title,doi", "itemType": "journalArticle"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 2
+    assert payload["total"] == 2
+    assert {group["field"] for group in payload["groups"]} == {"title", "doi"}
+
+
+async def test_collections_and_tags_endpoints_return_library_metadata(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    collection = {
+        "key": "COLL0001",
+        "version": 1,
+        "data": {"name": "Machine Learning", "parentCollection": False},
+        "meta": {"numCollections": 2, "numItems": 7},
+    }
+    tag = {"tag": "ml", "type": 0, "meta": {"numItems": 4}}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/collections":
+            return httpx.Response(200, json=[collection], headers={"Total-Results": "1"})
+        if request.method == "GET" and request.url.path == "/users/123456/items/top/tags":
+            assert request.url.params.get("q") == "ml"
+            return httpx.Response(200, json=[tag], headers={"Total-Results": "1"})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    collections_response = await async_client.get("/v1/collections", headers=auth_headers)
+    tags_response = await async_client.get(
+        "/v1/tags",
+        headers=auth_headers,
+        params={"q": "ml"},
+    )
+
+    assert collections_response.status_code == 200
+    assert collections_response.json()["collections"][0]["collectionKey"] == "COLL0001"
+    assert collections_response.json()["collections"][0]["path"] == "Machine Learning"
+    assert collections_response.json()["collections"][0]["depth"] == 0
+    assert collections_response.json()["collections"][0]["numItems"] == 7
+    assert collections_response.json()["total"] == 1
+    assert tags_response.status_code == 200
+    assert tags_response.json()["tags"][0]["tag"] == "ml"
+    assert tags_response.json()["tags"][0]["numItems"] == 4
+
+
+async def test_library_stats_endpoint_returns_counts(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    first = zotero_item(
+        "ITEM0001",
+        {
+            "itemType": "journalArticle",
+            "title": "Duplicate Paper",
+            "date": "2024-01-01",
+            "DOI": "10.1000/dup",
+            "creators": [],
+            "tags": [],
+            "collections": [],
+        },
+    )
+    second = zotero_item(
+        "ITEM0002",
+        {
+            "itemType": "journalArticle",
+            "title": "Duplicate Paper",
+            "date": "2024-01-02",
+            "DOI": "10.1000/dup",
+            "creators": [],
+            "tags": [],
+            "collections": [],
+        },
+    )
+    third = zotero_item(
+        "ITEM0003",
+        {
+            "itemType": "book",
+            "title": "Unique Book",
+            "date": "2024-01-03",
+            "creators": [],
+            "tags": [],
+            "collections": [],
+        },
+    )
+    collection = {
+        "key": "COLL0001",
+        "version": 1,
+        "data": {"name": "ML", "parentCollection": False},
+        "meta": {"numCollections": 0, "numItems": 3},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items/top":
+            if request.url.params.get("format") == "versions":
+                return httpx.Response(200, json={}, headers={"Last-Modified-Version": "42"})
+            return httpx.Response(
+                200,
+                json=[first, second, third],
+                headers={"Total-Results": "3"},
+            )
+        if request.method == "GET" and request.url.path == "/users/123456/collections":
+            return httpx.Response(200, json=[collection], headers={"Total-Results": "1"})
+        if request.method == "GET" and request.url.path == "/users/123456/items/top/tags":
+            return httpx.Response(200, json=[], headers={"Total-Results": "4"})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get("/v1/library/stats", headers=auth_headers)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["totalItems"] == 3
+    assert payload["itemTypeCounts"] == [
+        {"itemType": "journalArticle", "count": 2},
+        {"itemType": "book", "count": 1},
+    ]
+    assert payload["collectionCount"] == 1
+    assert payload["tagCount"] == 4
+    assert payload["duplicateGroups"] == {"titleGroups": 1, "doiGroups": 1}
+    assert payload["lastModifiedVersion"] == 42
+    assert payload["searchIndex"]["enabled"] is True
+    assert payload["searchIndex"]["ready"] is False
+
+
+async def test_library_stats_endpoint_reports_search_index_health(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    from app.main import app
+
+    search_index = app.state.bridge_service._local_search_index
+    assert search_index is not None
+    search_index.replace_records(
+        [
+            {
+                "itemKey": "ITEM0001",
+                "itemType": "journalArticle",
+                "title": "Indexed Paper",
+                "dateAdded": "2024-01-01T00:00:00Z",
+                "dateModified": "2024-01-02T00:00:00Z",
+                "year": "2024",
+                "DOI": "10.1000/indexed",
+                "abstractNote": "Indexed abstract",
+                "venue": "Journal",
+                "creators": [],
+                "tags": [],
+                "collectionKeys": [],
+                "noteText": "",
+                "fulltextText": "cached fulltext",
+            }
+        ],
+        last_modified_version=77,
+        sync_method="rebuild",
+    )
+
+    item = zotero_item(
+        "ITEM0001",
+        {
+            "itemType": "journalArticle",
+            "title": "Indexed Paper",
+            "creators": [],
+            "tags": [],
+            "collections": [],
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items/top":
+            if request.url.params.get("format") == "versions":
+                return httpx.Response(200, json={}, headers={"Last-Modified-Version": "77"})
+            return httpx.Response(200, json=[item], headers={"Total-Results": "1"})
+        if request.method == "GET" and request.url.path == "/users/123456/collections":
+            return httpx.Response(200, json=[], headers={"Total-Results": "0"})
+        if request.method == "GET" and request.url.path == "/users/123456/items/top/tags":
+            return httpx.Response(200, json=[], headers={"Total-Results": "0"})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get("/v1/library/stats", headers=auth_headers)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["searchIndex"]["enabled"] is True
+    assert payload["searchIndex"]["ready"] is True
+    assert payload["searchIndex"]["recordCount"] == 1
+    assert payload["searchIndex"]["lastModifiedVersion"] == 77
+    assert payload["searchIndex"]["lastSyncMethod"] == "rebuild"
+    assert payload["searchIndex"]["refreshedAt"] is not None
+
+
+async def test_item_changes_endpoint_supports_since_version_and_deleted_keys(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    changed_item = zotero_item(
+        "ITEM0002",
+        {
+            "itemType": "journalArticle",
+            "title": "Changed Paper",
+            "date": "2024-01-01",
+            "dateModified": "2025-01-01T00:00:00Z",
+            "creators": [],
+            "tags": [],
+            "collections": [],
+        },
+        version=5,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items/top":
+            if (
+                request.url.params.get("format") == "versions"
+                and request.url.params.get("since") == "4"
+            ):
+                return httpx.Response(
+                    200,
+                    json={"ITEM0002": 5},
+                    headers={"Last-Modified-Version": "6"},
+                )
+            if request.url.params.get("format") == "versions":
+                return httpx.Response(200, json={}, headers={"Last-Modified-Version": "6"})
+        if request.method == "GET" and request.url.path == "/users/123456/deleted":
+            assert request.url.params.get("since") == "4"
+            return httpx.Response(200, json={"items": ["OLD00001"]})
+        if request.method == "GET" and request.url.path == "/users/123456/items":
+            assert request.url.params.get("itemKey") == "ITEM0002"
+            return httpx.Response(200, json=[changed_item], headers={"Total-Results": "1"})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/changes",
+        headers=auth_headers,
+        params={"sinceVersion": 4},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["items"][0]["itemKey"] == "ITEM0002"
+    assert payload["deletedItemKeys"] == ["OLD00001"]
+    assert payload["deletedCount"] == 1
+    assert payload["sinceVersion"] == 4
+    assert payload["latestVersion"] == 6
+
+
+async def test_item_changes_endpoint_supports_since_timestamp(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    fresh_item = zotero_item(
+        "ITEM0002",
+        {
+            "itemType": "journalArticle",
+            "title": "Fresh Paper",
+            "dateModified": "2025-01-02T00:00:00Z",
+            "creators": [],
+            "tags": [],
+            "collections": [],
+        },
+    )
+    stale_item = zotero_item(
+        "ITEM0001",
+        {
+            "itemType": "journalArticle",
+            "title": "Old Paper",
+            "dateModified": "2024-12-31T23:59:59Z",
+            "creators": [],
+            "tags": [],
+            "collections": [],
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items/top":
+            if request.url.params.get("format") == "versions":
+                return httpx.Response(200, json={}, headers={"Last-Modified-Version": "9"})
+            return httpx.Response(
+                200,
+                json=[fresh_item, stale_item],
+                headers={"Total-Results": "2"},
+            )
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/changes",
+        headers=auth_headers,
+        params={"sinceTimestamp": "2025-01-01T00:00:00Z"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["items"][0]["itemKey"] == "ITEM0002"
+    assert payload["sinceTimestamp"] == "2025-01-01T00:00:00Z"
+    assert payload["latestVersion"] == 9
+
+
 async def test_add_by_doi_created_then_existing(
     async_client: httpx.AsyncClient,
     auth_headers: dict[str, str],
@@ -268,6 +1438,896 @@ async def test_get_item_citation_uses_configured_defaults(
     get_settings.cache_clear()
 
 
+async def test_item_tag_and_collection_write_endpoints_update_metadata(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    state: dict[str, Any] = {
+        "item": zotero_item(
+            "ITEM0001",
+            {
+                "itemType": "journalArticle",
+                "title": "Managed Paper",
+                "tags": [{"tag": "keep"}],
+                "collections": ["COLL0001"],
+                "creators": [],
+            },
+            version=3,
+        ),
+        "patches": [],
+    }
+    collections = [
+        {
+            "key": "COLL0001",
+            "version": 1,
+            "data": {"name": "Existing", "parentCollection": False},
+            "meta": {"numCollections": 0, "numItems": 1},
+        },
+        {
+            "key": "COLL0002",
+            "version": 1,
+            "data": {"name": "Added", "parentCollection": False},
+            "meta": {"numCollections": 0, "numItems": 1},
+        },
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001":
+            return httpx.Response(200, json=state["item"])
+        if request.method == "PATCH" and request.url.path == "/users/123456/items/ITEM0001":
+            payload = json.loads(request.content.decode("utf-8"))
+            state["patches"].append(payload)
+            item_data = state["item"]["data"]
+            if "tags" in payload:
+                item_data["tags"] = payload["tags"]
+            if "collections" in payload:
+                item_data["collections"] = payload["collections"]
+            state["item"]["version"] += 1
+            return httpx.Response(204)
+        if request.method == "GET" and request.url.path == "/users/123456/collections":
+            return httpx.Response(200, json=collections, headers={"Total-Results": "2"})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    add_tags_response = await async_client.post(
+        "/v1/items/ITEM0001/tags",
+        headers=auth_headers,
+        json={"tags": ["new-tag", "keep"]},
+    )
+    remove_tag_response = await async_client.delete(
+        "/v1/items/ITEM0001/tags/new-tag",
+        headers=auth_headers,
+    )
+    add_collection_response = await async_client.post(
+        "/v1/items/ITEM0001/collections",
+        headers=auth_headers,
+        json={"collectionKeys": ["COLL0002"]},
+    )
+
+    assert add_tags_response.status_code == 200
+    assert add_tags_response.json()["addedTags"] == ["new-tag"]
+    assert add_tags_response.json()["tags"] == ["keep", "new-tag"]
+    assert remove_tag_response.status_code == 200
+    assert remove_tag_response.json()["removedTag"] == "new-tag"
+    assert remove_tag_response.json()["tags"] == ["keep"]
+    assert add_collection_response.status_code == 200
+    assert add_collection_response.json()["addedCollectionKeys"] == ["COLL0002"]
+    assert add_collection_response.json()["collectionKeys"] == ["COLL0001", "COLL0002"]
+    assert len(state["patches"]) == 3
+
+
+async def test_batch_fulltext_preview_endpoint_returns_successes_and_errors(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    item = zotero_item(
+        "ITEM0001",
+        {"itemType": "journalArticle", "title": "Preview Paper", "creators": []},
+    )
+    children = [
+        zotero_item(
+            "ATTACH01",
+            {
+                "itemType": "attachment",
+                "title": "paper.pdf",
+                "filename": "paper.pdf",
+                "contentType": "application/pdf",
+                "linkMode": "imported_file",
+            },
+        )
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001":
+            return httpx.Response(200, json=item)
+        if request.method == "GET" and request.url.path == "/users/123456/items/MISSING99":
+            return httpx.Response(404)
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001/children":
+            return httpx.Response(200, json=children)
+        if request.method == "GET" and request.url.path == "/users/123456/items/ATTACH01/fulltext":
+            return httpx.Response(
+                200,
+                json={"content": "Preview text content.", "indexedPages": 1, "totalPages": 1},
+            )
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.post(
+        "/v1/items/fulltext/batch-preview",
+        headers=auth_headers,
+        json={"itemKeys": ["ITEM0001", "MISSING99"], "maxChars": 1000, "preferSource": "auto"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 2
+    assert payload["items"][0]["attachmentKey"] == "ATTACH01"
+    assert payload["items"][0]["content"] == "Preview text content."
+    assert payload["items"][1]["errorCode"] == "ITEM_NOT_FOUND"
+
+
+async def test_batch_fulltext_preview_endpoint_rejects_small_max_chars(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    response = await async_client.post(
+        "/v1/items/fulltext/batch-preview",
+        headers=auth_headers,
+        json={"itemKeys": ["ITEM0001"], "maxChars": 800, "preferSource": "auto"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "BAD_REQUEST"
+    assert (
+        response.json()["error"]["message"]
+        == "maxChars: Input should be greater than or equal to 1000"
+    )
+
+
+async def test_related_items_endpoint_returns_resolved_related_items(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    item = zotero_item(
+        "ITEM0001",
+        {
+            "itemType": "journalArticle",
+            "title": "Seed Paper",
+            "creators": [],
+            "relations": {"dc:relation": ["https://api.zotero.org/users/123456/items/ITEM0002"]},
+        },
+    )
+    related = zotero_item(
+        "ITEM0002",
+        {
+            "itemType": "journalArticle",
+            "title": "Related Paper",
+            "creators": [],
+            "tags": [],
+            "collections": [],
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001":
+            return httpx.Response(200, json=item)
+        if request.method == "GET" and request.url.path == "/users/123456/items":
+            assert request.url.params.get("itemKey") == "ITEM0002"
+            return httpx.Response(200, json=[related], headers={"Total-Results": "1"})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get("/v1/items/ITEM0001/related", headers=auth_headers)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["itemKey"] == "ITEM0001"
+    assert payload["count"] == 1
+    assert payload["items"][0]["itemKey"] == "ITEM0002"
+
+
+async def test_review_pack_endpoint_returns_rich_bundle(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    item = zotero_item(
+        "ITEM0001",
+        {
+            "itemType": "journalArticle",
+            "title": "Review Pack Paper",
+            "date": "2024-02-01",
+            "abstractNote": "A concise abstract.",
+            "publicationTitle": "Journal of Tests",
+            "creators": [{"name": "Ada Lovelace", "creatorType": "author"}],
+            "tags": [],
+            "collections": [],
+            "relations": {"dc:relation": ["https://api.zotero.org/users/123456/items/ITEM0002"]},
+        },
+    )
+    related = zotero_item(
+        "ITEM0002",
+        {
+            "itemType": "journalArticle",
+            "title": "Related Paper",
+            "creators": [],
+            "tags": [],
+            "collections": [],
+        },
+    )
+    children = [
+        zotero_item(
+            "ATTACH01",
+            {
+                "itemType": "attachment",
+                "title": "paper.pdf",
+                "filename": "paper.pdf",
+                "contentType": "application/pdf",
+                "linkMode": "imported_file",
+            },
+        ),
+        zotero_item(
+            "NOTE0001",
+            {
+                "itemType": "note",
+                "parentItem": "ITEM0001",
+                "note": "<p>Important note.</p>",
+                "dateModified": "2025-01-01T00:00:00Z",
+                "tags": [{"tag": "manual"}],
+            },
+        ),
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001":
+            if request.url.params.get("include") == "citation,bib":
+                return httpx.Response(
+                    200,
+                    json={**item, "citation": "<span>Citation</span>", "bib": "<div>Bib</div>"},
+                )
+            return httpx.Response(200, json=item)
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001/children":
+            return httpx.Response(200, json=children)
+        if request.method == "GET" and request.url.path == "/users/123456/items":
+            assert request.url.params.get("itemKey") == "ITEM0002"
+            return httpx.Response(200, json=[related], headers={"Total-Results": "1"})
+        if request.method == "GET" and request.url.path == "/users/123456/items/ATTACH01/fulltext":
+            return httpx.Response(
+                200,
+                json={"content": "Full text preview.", "indexedPages": 1, "totalPages": 1},
+            )
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.post(
+        "/v1/items/review-pack",
+        headers=auth_headers,
+        json={"itemKeys": ["ITEM0001"], "maxFulltextChars": 1000},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["items"][0]["item"]["abstractNote"] == "A concise abstract."
+    assert payload["items"][0]["citation"]["citationHtml"] == "<span>Citation</span>"
+    assert payload["items"][0]["fulltextPreview"]["content"] == "Full text preview."
+    assert payload["items"][0]["notes"][0]["noteKey"] == "NOTE0001"
+    assert payload["items"][0]["relatedItems"][0]["itemKey"] == "ITEM0002"
+
+
+async def test_search_advanced_fulltext_field_uses_local_indexed_cache(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    from app.main import app
+
+    parent = zotero_item(
+        "ITEM0001",
+        {
+            "itemType": "journalArticle",
+            "title": "Indexed Local Fulltext Paper",
+            "creators": [{"name": "Ada Lovelace", "creatorType": "author"}],
+            "tags": [],
+            "collections": [],
+        },
+    )
+    children = [
+        zotero_item(
+            "ATTACH01",
+            {
+                "itemType": "attachment",
+                "title": "paper.pdf",
+                "filename": "paper.pdf",
+                "contentType": "application/pdf",
+                "linkMode": "imported_file",
+            },
+        )
+    ]
+
+    store = app.state.bridge_service._local_fulltext_store
+    assert store is not None
+    store.write_payload(
+        attachment_key="ATTACH01",
+        item_key="ITEM0001",
+        filename="paper.pdf",
+        fulltext_payload={
+            "content": "semantic cache token from indexed local fulltext",
+            "indexedPages": 1,
+            "totalPages": 1,
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items/top":
+            if request.url.params.get("format") == "versions":
+                return httpx.Response(
+                    200,
+                    json={"ITEM0001": 3},
+                    headers={"Last-Modified-Version": "3"},
+                )
+            return httpx.Response(200, json=[parent], headers={"Total-Results": "1"})
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001/children":
+            return httpx.Response(200, json=children)
+        if request.method == "GET" and request.url.path == "/users/123456/items":
+            if request.url.params.get("itemKey") == "ITEM0001":
+                return httpx.Response(200, json=[parent], headers={"Total-Results": "1"})
+            return httpx.Response(200, json=[], headers={"Total-Results": "0"})
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001":
+            return httpx.Response(200, json=parent)
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/search-advanced",
+        headers=auth_headers,
+        params={"q": "semantic cache token", "fields": "fulltext", "sort": "relevance"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["items"][0]["itemKey"] == "ITEM0001"
+    assert payload["items"][0]["searchHints"][0]["field"] == "local_cache_fulltext"
+
+
+async def test_review_pack_endpoint_rejects_small_max_fulltext_chars(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    response = await async_client.post(
+        "/v1/items/review-pack",
+        headers=auth_headers,
+        json={"itemKeys": ["ITEM0001"], "maxFulltextChars": 800},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "BAD_REQUEST"
+    assert (
+        response.json()["error"]["message"]
+        == "maxFulltextChars: Input should be greater than or equal to 1000"
+    )
+
+
+async def test_merge_duplicate_items_endpoint_moves_children_and_deletes_duplicates(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    state: dict[str, Any] = {
+        "primary": zotero_item(
+            "PRIM0001",
+            {
+                "itemType": "journalArticle",
+                "title": "Primary Paper",
+                "tags": [{"tag": "keep"}],
+                "collections": ["COLL0001"],
+                "creators": [],
+            },
+            version=3,
+        ),
+        "duplicates": {
+            "DUPL0001": zotero_item(
+                "DUPL0001",
+                {
+                    "itemType": "journalArticle",
+                    "title": "Duplicate A",
+                    "tags": [{"tag": "extra"}],
+                    "collections": ["COLL0002"],
+                    "creators": [],
+                },
+                version=2,
+            ),
+            "DUPL0002": zotero_item(
+                "DUPL0002",
+                {
+                    "itemType": "journalArticle",
+                    "title": "Duplicate B",
+                    "tags": [],
+                    "collections": [],
+                    "creators": [],
+                },
+                version=4,
+            ),
+        },
+        "patches": [],
+        "deletes": [],
+    }
+    duplicate_children = {
+        "DUPL0001": [
+            zotero_item(
+                "ATTACH01",
+                {"itemType": "attachment", "parentItem": "DUPL0001", "title": "paper.pdf"},
+                version=1,
+            ),
+            zotero_item(
+                "NOTE0001",
+                {"itemType": "note", "parentItem": "DUPL0001", "note": "<p>note</p>"},
+                version=1,
+            ),
+        ],
+        "DUPL0002": [],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items/PRIM0001":
+            return httpx.Response(200, json=state["primary"])
+        if request.method == "GET" and request.url.path == "/users/123456/items":
+            assert request.url.params.get("itemKey") == "DUPL0001,DUPL0002"
+            return httpx.Response(
+                200,
+                json=[state["duplicates"]["DUPL0001"], state["duplicates"]["DUPL0002"]],
+                headers={"Total-Results": "2"},
+            )
+        if request.method == "GET" and request.url.path == "/users/123456/items/DUPL0001/children":
+            return httpx.Response(200, json=duplicate_children["DUPL0001"])
+        if request.method == "GET" and request.url.path == "/users/123456/items/DUPL0002/children":
+            return httpx.Response(200, json=duplicate_children["DUPL0002"])
+        if request.method == "PATCH" and request.url.path == "/users/123456/items/PRIM0001":
+            payload = json.loads(request.content.decode("utf-8"))
+            state["patches"].append(("primary", payload))
+            state["primary"]["data"]["tags"] = payload["tags"]
+            state["primary"]["data"]["collections"] = payload["collections"]
+            state["primary"]["version"] += 1
+            return httpx.Response(204)
+        if request.method == "PATCH" and request.url.path in {
+            "/users/123456/items/ATTACH01",
+            "/users/123456/items/NOTE0001",
+        }:
+            payload = json.loads(request.content.decode("utf-8"))
+            state["patches"].append((request.url.path, payload))
+            return httpx.Response(204)
+        if request.method == "DELETE" and request.url.path in {
+            "/users/123456/items/DUPL0001",
+            "/users/123456/items/DUPL0002",
+        }:
+            state["deletes"].append(request.url.path.rsplit("/", 1)[-1])
+            return httpx.Response(204)
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.post(
+        "/v1/items/duplicates/merge",
+        headers=auth_headers,
+        json={
+            "primaryItemKey": "PRIM0001",
+            "duplicateItemKeys": ["DUPL0001", "DUPL0002"],
+            "dryRun": False,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "merged"
+    assert payload["primaryItem"]["itemKey"] == "PRIM0001"
+    assert payload["addedTags"] == ["extra"]
+    assert payload["addedCollectionKeys"] == ["COLL0002"]
+    assert payload["movedAttachmentKeys"] == ["ATTACH01"]
+    assert payload["movedNoteKeys"] == ["NOTE0001"]
+    assert payload["deletedItemKeys"] == ["DUPL0001", "DUPL0002"]
+    assert state["deletes"] == ["DUPL0001", "DUPL0002"]
+
+
+async def test_discovery_search_endpoint_returns_openalex_results(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.openalex.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/works":
+            assert request.url.params.get("search") == "knowledge spillovers"
+            assert (
+                request.url.params.get("filter")
+                == "from_publication_date:2020-01-01,is_oa:true"
+            )
+            assert request.url.params.get("sort") == "cited_by_count:desc"
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {
+                            "id": "https://openalex.org/W123",
+                            "doi": "https://doi.org/10.1000/discovery",
+                            "display_name": "Knowledge Spillovers and Trade",
+                            "publication_year": 2024,
+                            "publication_date": "2024-01-01",
+                            "type": "article",
+                            "cited_by_count": 12,
+                            "authorships": [
+                                {
+                                    "author": {
+                                        "id": "https://openalex.org/A1",
+                                        "display_name": "Ada Lovelace",
+                                    }
+                                }
+                            ],
+                            "primary_location": {
+                                "landing_page_url": "https://example.org/paper",
+                                "pdf_url": "https://example.org/paper.pdf",
+                                "source": {"display_name": "Journal of Trade"},
+                            },
+                            "open_access": {"is_oa": True},
+                            "abstract_inverted_index": {
+                                "Knowledge": [0],
+                                "spillovers": [1],
+                            },
+                            "primary_topic": {
+                                "id": "https://openalex.org/T1",
+                                "display_name": "International Trade",
+                                "score": 0.9,
+                            },
+                        }
+                    ],
+                    "meta": {"count": 1},
+                },
+            )
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/discovery/search",
+        headers=auth_headers,
+        params={
+            "q": "knowledge spillovers",
+            "yearFrom": 2020,
+            "oaOnly": "true",
+            "resolveInLibrary": "false",
+            "sort": "cited_by",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["items"][0]["openAlexId"] == "https://openalex.org/W123"
+    assert payload["items"][0]["title"] == "Knowledge Spillovers and Trade"
+    assert payload["items"][0]["venue"] == "Journal of Trade"
+    assert payload["items"][0]["abstract"] == "Knowledge spillovers"
+    assert payload["items"][0]["authors"][0]["name"] == "Ada Lovelace"
+    assert payload["items"][0]["alreadyInLibrary"] is False
+    assert payload["items"][0]["topics"][0]["name"] == "International Trade"
+
+
+async def test_discovery_search_endpoint_resolves_and_excludes_existing_items(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    from app.main import app
+
+    search_index = app.state.bridge_service._local_search_index
+    assert search_index is not None
+    search_index.replace_records(
+        [
+            {
+                "itemKey": "ITEM0001",
+                "itemType": "journalArticle",
+                "title": "Knowledge Spillovers and Trade",
+                "dateAdded": "2024-01-01T00:00:00Z",
+                "dateModified": "2024-01-02T00:00:00Z",
+                "year": "2024",
+                "DOI": "10.1000/discovery",
+                "abstractNote": "Indexed abstract",
+                "venue": "Journal of Trade",
+                "creators": [],
+                "tags": [],
+                "collectionKeys": [],
+                "noteText": "",
+                "fulltextText": "",
+            }
+        ],
+        last_modified_version=15,
+        sync_method="rebuild",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.openalex.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/works":
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {
+                            "id": "https://openalex.org/W123",
+                            "doi": "https://doi.org/10.1000/discovery",
+                            "display_name": "Knowledge Spillovers and Trade",
+                            "publication_year": 2024,
+                            "publication_date": "2024-01-01",
+                            "type": "article",
+                            "cited_by_count": 12,
+                            "authorships": [],
+                            "primary_location": {"source": {"display_name": "Journal of Trade"}},
+                            "open_access": {"is_oa": True},
+                            "abstract_inverted_index": {"Knowledge": [0], "spillovers": [1]},
+                            "primary_topic": {},
+                        },
+                        {
+                            "id": "https://openalex.org/W999",
+                            "doi": "https://doi.org/10.1000/new-paper",
+                            "display_name": "New Discovery Paper",
+                            "publication_year": 2025,
+                            "publication_date": "2025-02-01",
+                            "type": "article",
+                            "cited_by_count": 3,
+                            "authorships": [],
+                            "primary_location": {"source": {"display_name": "New Journal"}},
+                            "open_access": {"is_oa": False},
+                            "abstract_inverted_index": {"New": [0], "paper": [1]},
+                            "primary_topic": {},
+                        },
+                    ],
+                    "meta": {"count": 2},
+                },
+            )
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    resolve_response = await async_client.get(
+        "/v1/discovery/search",
+        headers=auth_headers,
+        params={"q": "knowledge spillovers", "resolveInLibrary": "true"},
+    )
+    exclude_response = await async_client.get(
+        "/v1/discovery/search",
+        headers=auth_headers,
+        params={
+            "q": "knowledge spillovers",
+            "resolveInLibrary": "true",
+            "excludeExisting": "true",
+        },
+    )
+
+    assert resolve_response.status_code == 200
+    resolved_payload = resolve_response.json()
+    assert resolved_payload["items"][0]["alreadyInLibrary"] is True
+    assert resolved_payload["items"][0]["libraryItemKey"] == "ITEM0001"
+    assert resolved_payload["items"][0]["libraryMatchStrategy"] == "doi"
+
+    assert exclude_response.status_code == 200
+    excluded_payload = exclude_response.json()
+    assert excluded_payload["count"] == 1
+    assert excluded_payload["items"][0]["title"] == "New Discovery Paper"
+    assert excluded_payload["items"][0]["alreadyInLibrary"] is False
+
+
+async def test_discovery_search_exclude_existing_paginates_by_raw_openalex_offsets(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    from app.main import app
+
+    search_index = app.state.bridge_service._local_search_index
+    assert search_index is not None
+    search_index.replace_records(
+        [
+            {
+                "itemKey": "ITEM0001",
+                "itemType": "journalArticle",
+                "title": "Knowledge Spillovers and Trade",
+                "dateAdded": "2024-01-01T00:00:00Z",
+                "dateModified": "2024-01-02T00:00:00Z",
+                "year": "2024",
+                "DOI": "10.1000/discovery",
+                "abstractNote": "Indexed abstract",
+                "venue": "Journal of Trade",
+                "creators": [],
+                "tags": [],
+                "collectionKeys": [],
+                "noteText": "",
+                "fulltextText": "",
+            }
+        ],
+        last_modified_version=15,
+        sync_method="rebuild",
+    )
+
+    existing_result = {
+        "id": "https://openalex.org/W123",
+        "doi": "https://doi.org/10.1000/discovery",
+        "display_name": "Knowledge Spillovers and Trade",
+        "publication_year": 2024,
+        "publication_date": "2024-01-01",
+        "type": "article",
+        "cited_by_count": 12,
+        "authorships": [],
+        "primary_location": {"source": {"display_name": "Journal of Trade"}},
+        "open_access": {"is_oa": True},
+        "abstract_inverted_index": {"Knowledge": [0], "spillovers": [1]},
+        "primary_topic": {},
+    }
+    new_result = {
+        "id": "https://openalex.org/W999",
+        "doi": "https://doi.org/10.1000/new-paper",
+        "display_name": "New Discovery Paper",
+        "publication_year": 2025,
+        "publication_date": "2025-02-01",
+        "type": "article",
+        "cited_by_count": 3,
+        "authorships": [],
+        "primary_location": {"source": {"display_name": "New Journal"}},
+        "open_access": {"is_oa": False},
+        "abstract_inverted_index": {"New": [0], "paper": [1]},
+        "primary_topic": {},
+    }
+    second_new_result = {
+        **new_result,
+        "id": "https://openalex.org/W1000",
+        "doi": "https://doi.org/10.1000/new-paper-2",
+        "display_name": "Another Discovery Paper",
+    }
+    seen_pages: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.openalex.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/works":
+            page = str(request.url.params.get("page") or "")
+            seen_pages.append(page)
+            if page == "1":
+                return httpx.Response(
+                    200,
+                    json={"results": [existing_result] * 200, "meta": {"count": 202}},
+                )
+            if page == "2":
+                return httpx.Response(
+                    200,
+                    json={"results": [new_result, second_new_result], "meta": {"count": 202}},
+                )
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/discovery/search",
+        headers=auth_headers,
+        params={
+            "q": "knowledge spillovers",
+            "limit": 1,
+            "resolveInLibrary": "true",
+            "excludeExisting": "true",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["items"][0]["title"] == "New Discovery Paper"
+    assert payload["nextStart"] == 201
+    assert seen_pages == ["1", "2"]
+
+
+async def test_discovery_search_waits_for_local_index_when_resolving_matches(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    respx_mock: respx.MockRouter,
+) -> None:
+    from app.main import app
+
+    service = app.state.bridge_service
+    search_index = service._local_search_index
+    assert search_index is not None
+    assert search_index.is_ready() is False
+    state = {"ensure_calls": 0}
+
+    async def fake_ensure_ready() -> None:
+        state["ensure_calls"] += 1
+        search_index.replace_records(
+            [
+                {
+                    "itemKey": "ITEM0001",
+                    "itemType": "journalArticle",
+                    "title": "Knowledge Spillovers and Trade",
+                    "dateAdded": "2024-01-01T00:00:00Z",
+                    "dateModified": "2024-01-02T00:00:00Z",
+                    "year": "2024",
+                    "DOI": "10.1000/discovery",
+                    "abstractNote": "Indexed abstract",
+                    "venue": "Journal of Trade",
+                    "creators": [],
+                    "tags": [],
+                    "collectionKeys": [],
+                    "noteText": "",
+                    "fulltextText": "",
+                }
+            ],
+            last_modified_version=15,
+            sync_method="rebuild",
+        )
+
+    monkeypatch.setattr(service, "_ensure_local_search_index_ready", fake_ensure_ready)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.openalex.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/works":
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {
+                            "id": "https://openalex.org/W123",
+                            "doi": "https://doi.org/10.1000/discovery",
+                            "display_name": "Knowledge Spillovers and Trade",
+                            "publication_year": 2024,
+                            "publication_date": "2024-01-01",
+                            "type": "article",
+                            "cited_by_count": 12,
+                            "authorships": [],
+                            "primary_location": {"source": {"display_name": "Journal of Trade"}},
+                            "open_access": {"is_oa": True},
+                            "abstract_inverted_index": {"Knowledge": [0], "spillovers": [1]},
+                            "primary_topic": {},
+                        }
+                    ],
+                    "meta": {"count": 1},
+                },
+            )
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/discovery/search",
+        headers=auth_headers,
+        params={"q": "knowledge spillovers", "resolveInLibrary": "true"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["alreadyInLibrary"] is True
+    assert payload["items"][0]["libraryItemKey"] == "ITEM0001"
+    assert payload["items"][0]["libraryMatchStrategy"] == "doi"
+    assert state["ensure_calls"] == 1
+
+
 async def test_search_uses_local_fulltext_cache_when_upstream_misses(
     async_client: httpx.AsyncClient,
     auth_headers: dict[str, str],
@@ -379,8 +2439,128 @@ async def test_search_skips_stale_local_fulltext_cache_entries(
     )
 
     assert response.status_code == 200
-    assert response.json() == {"items": [], "count": 0}
+    assert response.json() == {
+        "items": [],
+        "count": 0,
+        "total": 0,
+        "start": 0,
+        "limit": 5,
+        "nextStart": None,
+    }
     assert store.search_item_keys("stale semantic cache token", limit=5) == []
+
+
+async def test_search_returns_top_level_attachment_hits(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    attachment = zotero_item(
+        "ATTACHTOP",
+        {
+            "itemType": "attachment",
+            "title": "top-level-attachment.pdf",
+            "filename": "top-level-attachment.pdf",
+            "contentType": "application/pdf",
+            "linkMode": "imported_file",
+            "md5": "abc",
+            "mtime": "123",
+            "collections": [],
+            "tags": [{"tag": "pdf"}],
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items":
+            return httpx.Response(200, json=[attachment], headers={"Total-Results": "1"})
+        if request.method == "GET" and request.url.path == "/users/123456/items/ATTACHTOP":
+            return httpx.Response(200, json=attachment)
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/search",
+        headers=auth_headers,
+        params={
+            "q": "top-level-attachment",
+            "includeFulltext": "false",
+            "includeAttachments": "false",
+            "includeNotes": "false",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["items"][0]["itemKey"] == "ATTACHTOP"
+    assert payload["items"][0]["itemType"] == "attachment"
+
+
+async def test_search_uses_legacy_top_level_attachment_fulltext_cache(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    from app.main import app
+
+    store = app.state.bridge_service._local_fulltext_store
+    assert store is not None
+    store.write_payload(
+        attachment_key="ATTLEG01",
+        item_key=None,
+        filename="legacy-top-level.pdf",
+        fulltext_payload={
+            "content": "legacy standalone cache token",
+            "indexedPages": 1,
+            "totalPages": 1,
+        },
+    )
+
+    attachment = zotero_item(
+        "ATTLEG01",
+        {
+            "itemType": "attachment",
+            "title": "legacy-top-level.pdf",
+            "filename": "legacy-top-level.pdf",
+            "contentType": "application/pdf",
+            "linkMode": "imported_file",
+            "collections": [],
+            "tags": [],
+        },
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.zotero.org":
+            raise AssertionError(f"unexpected host: {request.url}")
+        if request.method == "GET" and request.url.path == "/users/123456/items":
+            return httpx.Response(200, json=[])
+        if request.method == "GET" and request.url.path == "/users/123456/items/ATTLEG01":
+            return httpx.Response(200, json=attachment)
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/search",
+        headers=auth_headers,
+        params={
+            "q": "legacy standalone cache token",
+            "limit": 5,
+            "includeFulltext": "true",
+            "includeAttachments": "false",
+            "includeNotes": "false",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["items"][0]["itemKey"] == "ATTLEG01"
+    assert payload["items"][0]["itemType"] == "attachment"
+    assert payload["items"][0]["searchHints"][0]["field"] == "local_cache_fulltext"
 
 
 async def test_search_backfills_valid_local_fulltext_after_stale_hit(
