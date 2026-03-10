@@ -30,21 +30,200 @@ class ZoteroClient:
         limit: int,
         include_fulltext: bool,
     ) -> list[dict[str, Any]]:
+        items, _ = await self.search_items_page_raw(
+            q=q,
+            start=0,
+            limit=limit,
+            include_fulltext=include_fulltext,
+            item_type=None,
+            tag=None,
+            collection_key=None,
+            sort=None,
+            direction=None,
+        )
+        return items
+
+    async def search_items_page_raw(
+        self,
+        *,
+        q: str,
+        start: int,
+        limit: int,
+        include_fulltext: bool,
+        item_type: str | None,
+        tag: str | None,
+        collection_key: str | None,
+        sort: str | None,
+        direction: str | None,
+    ) -> tuple[list[dict[str, Any]], int]:
         params: dict[str, Any] = {
             "q": q,
+            "start": start,
             "limit": limit,
             "format": "json",
         }
         if include_fulltext:
             params["qmode"] = "everything"
+        if item_type:
+            params["itemType"] = item_type
+        if tag:
+            params["tag"] = tag
+        if sort:
+            params["sort"] = sort
+        if direction:
+            params["direction"] = direction
+
         response = await self._request(
             "GET",
-            self._library_path("items"),
+            self._items_path(collection_key=collection_key, top_level=False),
             params=params,
             expected_statuses={200},
         )
         payload = response.json()
+        items = payload if isinstance(payload, list) else []
+        return items, self._total_results(response)
+
+    async def list_top_level_items_raw(
+        self,
+        *,
+        start: int,
+        limit: int,
+        item_type: str | None,
+        collection_key: str | None,
+        tag: str | None,
+        sort: str,
+        direction: str,
+    ) -> tuple[list[dict[str, Any]], int]:
+        params: dict[str, Any] = {
+            "format": "json",
+            "start": start,
+            "limit": limit,
+            "sort": sort,
+            "direction": direction,
+        }
+        if item_type:
+            params["itemType"] = item_type
+        if tag:
+            params["tag"] = tag
+
+        response = await self._request(
+            "GET",
+            self._items_path(collection_key=collection_key, top_level=True),
+            params=params,
+            expected_statuses={200},
+        )
+        payload = response.json()
+        items = payload if isinstance(payload, list) else []
+        return items, self._total_results(response)
+
+    async def list_top_level_item_versions(
+        self,
+        *,
+        since_version: int | None,
+    ) -> tuple[dict[str, int], int | None]:
+        params: dict[str, Any] = {"format": "versions"}
+        if since_version is not None:
+            params["since"] = since_version
+        response = await self._request(
+            "GET",
+            self._library_path("items", "top"),
+            params=params,
+            expected_statuses={200},
+        )
+        payload = response.json()
+        versions: dict[str, int] = {}
+        if isinstance(payload, dict):
+            for key, value in payload.items():
+                if isinstance(key, str):
+                    try:
+                        versions[key] = int(value)
+                    except (TypeError, ValueError):
+                        continue
+        return versions, self._last_modified_version(response)
+
+    async def get_items_by_keys_raw(self, item_keys: list[str]) -> list[dict[str, Any]]:
+        normalized_keys = [key.strip() for key in item_keys if key.strip()]
+        if not normalized_keys:
+            return []
+        response = await self._request(
+            "GET",
+            self._library_path("items"),
+            params={
+                "format": "json",
+                "itemKey": ",".join(normalized_keys),
+            },
+            expected_statuses={200},
+        )
+        payload = response.json()
         return payload if isinstance(payload, list) else []
+
+    async def list_collections_raw(
+        self,
+        *,
+        start: int,
+        limit: int,
+        top_level_only: bool,
+    ) -> tuple[list[dict[str, Any]], int]:
+        response = await self._request(
+            "GET",
+            self._library_path("collections", "top" if top_level_only else ""),
+            params={"format": "json", "start": start, "limit": limit},
+            expected_statuses={200},
+        )
+        payload = response.json()
+        collections = payload if isinstance(payload, list) else []
+        return collections, self._total_results(response)
+
+    async def get_deleted_item_keys(self, *, since_version: int) -> list[str]:
+        response = await self._request(
+            "GET",
+            self._library_path("deleted"),
+            params={"since": since_version},
+            expected_statuses={200},
+        )
+        payload = response.json()
+        if not isinstance(payload, dict):
+            return []
+        deleted_items = payload.get("items", [])
+        if not isinstance(deleted_items, list):
+            return []
+        return [str(value) for value in deleted_items if isinstance(value, str)]
+
+    async def list_tags_raw(
+        self,
+        *,
+        start: int,
+        limit: int,
+        q: str | None,
+        top_level_only: bool,
+        collection_key: str | None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        params: dict[str, Any] = {
+            "format": "json",
+            "start": start,
+            "limit": limit,
+        }
+        if q:
+            params["q"] = q
+        if collection_key:
+            path = self._library_path(
+                "collections",
+                collection_key,
+                "items",
+                "top" if top_level_only else "",
+                "tags",
+            )
+        else:
+            path = self._library_path("items", "top" if top_level_only else "", "tags")
+        response = await self._request(
+            "GET",
+            path,
+            params=params,
+            expected_statuses={200},
+        )
+        payload = response.json()
+        tags = payload if isinstance(payload, list) else []
+        return tags, self._total_results(response)
 
     async def get_item(self, item_key: str) -> dict[str, Any]:
         response = await self._request(
@@ -435,6 +614,16 @@ class ZoteroClient:
         base = self._settings.zotero_library_path.rstrip("/")
         return f"{base}/{suffix}" if suffix else base
 
+    def _items_path(self, *, collection_key: str | None, top_level: bool) -> str:
+        if collection_key:
+            return self._library_path(
+                "collections",
+                collection_key,
+                "items",
+                "top" if top_level else "",
+            )
+        return self._library_path("items", "top" if top_level else "")
+
     def _backoff_seconds(self, response: httpx.Response, attempt: int) -> float:
         for header_name in ("Backoff", "Retry-After"):
             header_value = response.headers.get(header_name)
@@ -444,6 +633,26 @@ class ZoteroClient:
                 except ValueError:
                     pass
         return min(2**attempt, 8)
+
+    @staticmethod
+    def _total_results(response: httpx.Response) -> int:
+        header_value = response.headers.get("Total-Results")
+        if header_value is None:
+            return 0
+        try:
+            return max(int(header_value), 0)
+        except ValueError:
+            return 0
+
+    @staticmethod
+    def _last_modified_version(response: httpx.Response) -> int | None:
+        header_value = response.headers.get("Last-Modified-Version")
+        if header_value is None:
+            return None
+        try:
+            return max(int(header_value), 0)
+        except ValueError:
+            return None
 
     def _map_error(self, response: httpx.Response) -> BridgeError:
         if response.status_code == 401:

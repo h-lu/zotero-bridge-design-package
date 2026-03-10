@@ -5,11 +5,28 @@
 ## Implemented endpoints
 
 - `GET /healthz`
+- `GET /v1/library/stats`
+- `GET /v1/items`
+- `POST /v1/items/batch`
+- `GET /v1/items/changes`
+- `GET /v1/items/resolve`
+- `GET /v1/items/duplicates`
+- `POST /v1/items/duplicates/merge`
+- `GET /v1/items/search-advanced`
+- `POST /v1/items/review-pack`
 - `POST /v1/papers/add-by-doi`
 - `POST /v1/papers/upload-pdf-action`
 - `POST /v1/papers/upload-pdf-multipart`
+- `GET /v1/collections`
+- `GET /v1/discovery/search`
+- `GET /v1/tags`
 - `GET /v1/items/search`
+- `POST /v1/items/fulltext/batch-preview`
 - `GET /v1/items/{itemKey}`
+- `GET /v1/items/{itemKey}/related`
+- `POST /v1/items/{itemKey}/tags`
+- `DELETE /v1/items/{itemKey}/tags/{tag}`
+- `POST /v1/items/{itemKey}/collections`
 - `GET /v1/items/{itemKey}/notes`
 - `POST /v1/items/{itemKey}/notes`
 - `GET /v1/items/{itemKey}/fulltext`
@@ -30,6 +47,22 @@
 - Generic item notes can also be deleted through the dedicated note endpoint.
 - PDF upload flow implemented as `create attachment -> authorize -> upload -> register`.
 - Full text served only through the dedicated `/fulltext` endpoint and chunked by cursor.
+- Top-level library items can be paged through `GET /v1/items`, with optional `itemType` filtering for views like `journalArticle`.
+- `GET /v1/library/stats` gives an orientation snapshot for agents: item-type counts, tag/collection totals, duplicate-group counts, and the latest Zotero library version.
+- `GET /v1/items/changes` supports both `sinceVersion` and `sinceTimestamp`, so an agent can refresh local context incrementally instead of re-enumerating the whole library.
+- Search and detail payloads include richer bibliographic metadata such as abstract, venue, date fields, URL, publisher, language, extra, and Zotero relations.
+- Search responses now include pagination plus `searchHints`, so LLM clients can tell whether a hit came from title, DOI, creator, attachment text, notes, or cached full text.
+- `GET /v1/items/search-advanced` adds fielded and structured filtering for literature-review workflows, including title/author/abstract/venue/DOI matching, year filters, and `hasFulltext` / `hasAiNotes`.
+- Exact item resolution is available through `GET /v1/items/resolve`, with DOI fallback logic that scans the filtered library when Zotero text search misses.
+- `GET /v1/collections` now includes collection hierarchy metadata (`path`, `depth`, `numCollections`, `numItems`) so the client does not need to reconstruct the tree itself.
+- Library metadata is exposed through `GET /v1/collections` and `GET /v1/tags`, and duplicate cleanup support is available through `GET /v1/items/duplicates`.
+- Multiple known items can be fetched in one round trip through `POST /v1/items/batch`.
+- `POST /v1/items/review-pack` bundles item metadata, citation output, optional notes, related items, and a first full-text chunk so a model can synthesize several papers with fewer round trips.
+- `GET /v1/discovery/search` queries OpenAlex for topic discovery beyond the local Zotero library and normalizes the result into a bridge-friendly response shape.
+- Existing items can be organized through `POST /v1/items/{itemKey}/tags`, `DELETE /v1/items/{itemKey}/tags/{tag}`, and `POST /v1/items/{itemKey}/collections`.
+- `POST /v1/items/fulltext/batch-preview` returns the first chunk for multiple items at once and reports per-item errors without failing the whole batch.
+- `GET /v1/items/{itemKey}/related` resolves Zotero relation links to actual item summaries.
+- `POST /v1/items/duplicates/merge` supports a safe `dryRun` mode and can non-destructively merge tags, collections, and child notes/attachments into a chosen primary item before deleting the duplicates.
 - Uploaded PDFs are also extracted into a local cache, so `/fulltext` can fall back to `source=local_cache` before Zotero finishes asynchronous indexing.
 - When `GET /v1/items/search` is called with `includeFulltext=true`, the bridge can supplement Zotero results with matches from the local full-text cache.
 - Structured JSON error envelope for validation, auth, upstream failures, and conflicts.
@@ -46,6 +79,7 @@ Copy `.env.example` to `.env` and set:
 Optional runtime toggles:
 
 - `STARTUP_VALIDATE_ZOTERO_KEY=true`
+- `OPENALEX_API_KEY=...`
 - `DEFAULT_COLLECTION_KEY=...`
 - `DEFAULT_CITATION_STYLE=apa`
 - `DEFAULT_CITATION_LOCALE=en-US`
@@ -97,15 +131,19 @@ Recommended live order:
 
 1. `POST /v1/papers/add-by-doi`
 2. `GET /v1/items/search`
-3. `GET /v1/items/{itemKey}/citation`
-4. `POST /v1/items/{itemKey}/notes/upsert-ai-note`
-5. `POST /v1/papers/upload-pdf-multipart`
-6. `GET /v1/items/{itemKey}/fulltext`
+3. `GET /v1/items/search-advanced`
+4. `POST /v1/items/review-pack`
+5. `GET /v1/discovery/search`
+6. `GET /v1/items/{itemKey}/citation`
+7. `POST /v1/items/{itemKey}/notes/upsert-ai-note`
+8. `POST /v1/papers/upload-pdf-multipart`
+9. `GET /v1/items/{itemKey}/fulltext`
 
 ## Notes
 
 - The bridge stays stateless for MVP.
 - `localhost:23119` is intentionally not exposed or used.
 - The Actions contract remains in `openapi.actions.yaml`; the multipart endpoint is intentionally excluded there.
+- The Actions contract also includes the browse-oriented and agent-sync APIs (`/v1/library/stats`, `/v1/items`, `/v1/items/changes`, `/v1/items/resolve`, `/v1/collections`, `/v1/tags`, `/v1/items/duplicates`, `/v1/items/batch`, `/v1/items/fulltext/batch-preview`, `/v1/items/{itemKey}/related`, `/v1/items/search-advanced`, `/v1/items/review-pack`, `/v1/discovery/search`) so an LLM can inspect the library, prepare review packets, and discover related papers without relying only on fuzzy search.
 - `hasFulltext` in search/detail summaries is a PDF capability hint; actual full-text availability is confirmed by `/v1/items/{itemKey}/fulltext`.
 - If Zotero Web API has not indexed a newly uploaded PDF yet, `/v1/items/{itemKey}/fulltext` can still succeed from the local cache and report `source=local_cache`.

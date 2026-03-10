@@ -1,0 +1,24 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: zotero-bridge-app
+    env_file:
+      - ../.env
+    volumes:
+      - ../.cache/fulltext:/app/.cache/fulltext
+      - ../.cache/search-index:/app/.cache/search-index
+    restart: unless-stopped
+
+  proxy:
+    image: nginx:alpine
+    container_name: zotero-bridge-proxy-8888
+    depends_on:
+      - app
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./nginx.8888.conf:/etc/nginx/conf.d/default.conf:ro
+      - /root/teachproxy/certbot/conf:/etc/letsencrypt:ro
+    restart: unless-stopped

@@ -101,6 +101,31 @@ def test_local_fulltext_store_can_search_item_keys(tmp_path: Path) -> None:
     assert payload == ["ITEM0001"]
 
 
+def test_local_fulltext_store_uses_attachment_key_for_legacy_top_level_records(
+    tmp_path: Path,
+) -> None:
+    store = LocalFulltextStore(tmp_path)
+    store.write_payload(
+        attachment_key="ATTACH01",
+        item_key=None,
+        filename="standalone.pdf",
+        fulltext_payload={
+            "content": "Legacy standalone cache token",
+            "indexedPages": 1,
+            "totalPages": 1,
+        },
+    )
+
+    assert store.search_item_keys("standalone cache token", limit=5) == ["ATTACH01"]
+    assert (
+        store.first_match_snippet(item_key="ATTACH01", query="standalone cache token")
+        == "Legacy standalone cache token"
+    )
+    assert store.item_search_text("ATTACH01") == "Legacy standalone cache token"
+    assert store.delete_item_records("ATTACH01") == 1
+    assert store.get_payload("ATTACH01") is None
+
+
 def test_local_fulltext_store_can_delete_item_records(tmp_path: Path) -> None:
     store = LocalFulltextStore(tmp_path)
     store.write_payload(

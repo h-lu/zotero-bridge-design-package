@@ -100,6 +100,99 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - HTTPBearer: []
+  /v1/items:
+    get:
+      tags:
+      - Items
+      summary: List Items
+      operationId: listItems
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: start
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Start
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+          title: Limit
+      - name: itemType
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Itemtype
+      - name: collectionKey
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collectionkey
+      - name: tag
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tag
+      - name: includeAttachments
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Includeattachments
+      - name: includeNotes
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Includenotes
+      - name: sort
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^(dateAdded|dateModified|title)$
+          default: dateAdded
+          title: Sort
+      - name: direction
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^(asc|desc)$
+          default: desc
+          title: Direction
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /v1/items/search:
     get:
       tags:
@@ -115,6 +208,14 @@ paths:
         schema:
           type: string
           title: Q
+      - name: start
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Start
       - name: limit
         in: query
         required: false
@@ -145,6 +246,48 @@ paths:
           type: boolean
           default: true
           title: Includenotes
+      - name: itemType
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Itemtype
+      - name: collectionKey
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collectionkey
+      - name: tag
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tag
+      - name: sort
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(dateAdded|dateModified|title)$
+          - type: 'null'
+          title: Sort
+      - name: direction
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(asc|desc)$
+          - type: 'null'
+          title: Direction
       responses:
         '200':
           description: Successful Response
@@ -158,6 +301,537 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /v1/items/search-advanced:
+    get:
+      tags:
+      - Items
+      summary: Search Items Advanced
+      operationId: searchItemsAdvanced
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Q
+      - name: fields
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^(title|creator|abstract|venue|doi|tag|note|fulltext)(,(title|creator|abstract|venue|doi|tag|note|fulltext))*$
+          default: title,creator,abstract,venue,doi,tag
+          title: Fields
+      - name: title
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+      - name: author
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Author
+      - name: abstract
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Abstract
+      - name: venue
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Venue
+      - name: doi
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Doi
+      - name: yearFrom
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Yearfrom
+      - name: yearTo
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Yearto
+      - name: start
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Start
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 25
+          minimum: 1
+          default: 10
+          title: Limit
+      - name: itemType
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Itemtype
+      - name: collectionKey
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collectionkey
+      - name: tag
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tag
+      - name: hasFulltext
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Hasfulltext
+      - name: hasAiNotes
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Hasainotes
+      - name: includeAttachments
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Includeattachments
+      - name: includeNotes
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Includenotes
+      - name: sort
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^(relevance|dateAdded|dateModified|title)$
+          default: relevance
+          title: Sort
+      - name: direction
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(asc|desc)$
+          - type: 'null'
+          title: Direction
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdvancedSearchResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/items/batch:
+    post:
+      tags:
+      - Items
+      summary: Batch Get Items
+      operationId: batchGetItems
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchItemRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchItemResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /v1/items/resolve:
+    get:
+      tags:
+      - Items
+      summary: Resolve Items
+      operationId: resolveItems
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: doi
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Doi
+      - name: title
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+      - name: itemType
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Itemtype
+      - name: collectionKey
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collectionkey
+      - name: tag
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tag
+      - name: includeAttachments
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Includeattachments
+      - name: includeNotes
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Includenotes
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 25
+          minimum: 1
+          default: 10
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveItemsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/items/duplicates:
+    get:
+      tags:
+      - Items
+      summary: Find Duplicate Items
+      operationId: findDuplicateItems
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: start
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Start
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+          title: Limit
+      - name: by
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^(title|doi)(,(title|doi))*$
+          default: title,doi
+          title: By
+      - name: itemType
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: journalArticle
+          title: Itemtype
+      - name: collectionKey
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collectionkey
+      - name: tag
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tag
+      - name: includeAttachments
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Includeattachments
+      - name: includeNotes
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Includenotes
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DuplicateGroupsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/items/changes:
+    get:
+      tags:
+      - Items
+      summary: List Item Changes
+      operationId: listItemChanges
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: start
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Start
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+          title: Limit
+      - name: sinceVersion
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            minimum: 0
+          - type: 'null'
+          title: Sinceversion
+      - name: sinceTimestamp
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Sincetimestamp
+      - name: includeAttachments
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Includeattachments
+      - name: includeNotes
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Includenotes
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemChangesResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/items/fulltext/batch-preview:
+    post:
+      tags:
+      - Items
+      summary: Batch Fulltext Preview
+      operationId: batchFulltextPreview
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchFulltextPreviewRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchFulltextPreviewResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /v1/items/review-pack:
+    post:
+      tags:
+      - Items
+      summary: Build Review Pack
+      operationId: buildReviewPack
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewPackRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewPackResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /v1/items/duplicates/merge:
+    post:
+      tags:
+      - Items
+      summary: Merge Duplicate Items
+      operationId: mergeDuplicateItems
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MergeDuplicateItemsRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MergeDuplicateItemsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /v1/items/{itemKey}:
     get:
       tags:
@@ -247,6 +921,108 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /v1/items/{itemKey}/tags:
+    post:
+      tags:
+      - Items
+      summary: Add Item Tags
+      operationId: addItemTags
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: itemKey
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Itemkey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemTagsWriteRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemTagsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/items/{itemKey}/tags/{tag}:
+    delete:
+      tags:
+      - Items
+      summary: Remove Item Tag
+      operationId: removeItemTag
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: itemKey
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Itemkey
+      - name: tag
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tag
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemTagsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/items/{itemKey}/collections:
+    post:
+      tags:
+      - Items
+      summary: Add Item To Collections
+      operationId: addItemToCollections
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: itemKey
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Itemkey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemCollectionsWriteRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemCollectionsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /v1/items/{itemKey}/fulltext:
     get:
       tags:
@@ -308,6 +1084,48 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /v1/items/{itemKey}/related:
+    get:
+      tags:
+      - Items
+      summary: Get Related Items
+      operationId: getRelatedItems
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: itemKey
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Itemkey
+      - name: includeAttachments
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Includeattachments
+      - name: includeNotes
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Includenotes
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RelatedItemsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /v1/items/{itemKey}/notes/upsert-ai-note:
     post:
       tags:
@@ -361,15 +1179,17 @@ paths:
         in: query
         required: false
         schema:
-          type: string
-          default: apa
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Style
       - name: locale
         in: query
         required: false
         schema:
-          type: string
-          default: en-US
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Locale
       - name: linkwrap
         in: query
@@ -385,6 +1205,219 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CitationResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/library/stats:
+    get:
+      tags:
+      - Library
+      summary: Get Library Stats
+      operationId: getLibraryStats
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LibraryStatsResponse'
+      security:
+      - HTTPBearer: []
+  /v1/collections:
+    get:
+      tags:
+      - Library
+      summary: List Collections
+      operationId: listCollections
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: start
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Start
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: topLevelOnly
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Toplevelonly
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/tags:
+    get:
+      tags:
+      - Library
+      summary: List Tags
+      operationId: listTags
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: start
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Start
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: q
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Q
+      - name: topLevelOnly
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: true
+          title: Toplevelonly
+      - name: collectionKey
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Collectionkey
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/discovery/search:
+    get:
+      tags:
+      - Discovery
+      summary: Search Discovery
+      operationId: searchDiscovery
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Q
+      - name: start
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Start
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 25
+          minimum: 1
+          default: 10
+          title: Limit
+      - name: yearFrom
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Yearfrom
+      - name: yearTo
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Yearto
+      - name: oaOnly
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Oaonly
+      - name: resolveInLibrary
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: true
+          title: Resolveinlibrary
+      - name: excludeExisting
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Excludeexisting
+      - name: sort
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^(relevance|cited_by|recent)$
+          default: relevance
+          title: Sort
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscoverySearchResponse'
         '422':
           description: Validation Error
           content:
@@ -565,6 +1598,39 @@ components:
       - created
       - existing
       title: AddByDOIStatus
+    AdvancedSearchResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/SearchResultItem'
+          type: array
+          title: Items
+        count:
+          type: integer
+          title: Count
+        total:
+          type: integer
+          title: Total
+        start:
+          type: integer
+          title: Start
+        limit:
+          type: integer
+          title: Limit
+        nextStart:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Nextstart
+      additionalProperties: false
+      type: object
+      required:
+      - items
+      - count
+      - total
+      - start
+      - limit
+      title: AdvancedSearchResponse
     AttachmentSummary:
       properties:
         attachmentKey:
@@ -610,6 +1676,89 @@ components:
       - isPdf
       - hasFulltext
       title: AttachmentSummary
+    BatchFulltextPreviewRequest:
+      properties:
+        itemKeys:
+          items:
+            type: string
+          type: array
+          maxItems: 20
+          minItems: 1
+          title: Itemkeys
+        maxChars:
+          type: integer
+          minimum: 1000.0
+          title: Maxchars
+          default: 3000
+        preferSource:
+          type: string
+          pattern: ^(auto|web|cache)$
+          title: Prefersource
+          default: auto
+      additionalProperties: false
+      type: object
+      required:
+      - itemKeys
+      title: BatchFulltextPreviewRequest
+    BatchFulltextPreviewResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/FulltextPreviewItem'
+          type: array
+          title: Items
+        count:
+          type: integer
+          title: Count
+      additionalProperties: false
+      type: object
+      required:
+      - items
+      - count
+      title: BatchFulltextPreviewResponse
+    BatchItemRequest:
+      properties:
+        itemKeys:
+          items:
+            type: string
+          type: array
+          maxItems: 50
+          minItems: 1
+          title: Itemkeys
+        includeAttachments:
+          type: boolean
+          title: Includeattachments
+          default: false
+        includeNotes:
+          type: boolean
+          title: Includenotes
+          default: false
+      additionalProperties: false
+      type: object
+      required:
+      - itemKeys
+      title: BatchItemRequest
+    BatchItemResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/SearchItem'
+          type: array
+          title: Items
+        count:
+          type: integer
+          title: Count
+        notFoundKeys:
+          items:
+            type: string
+          type: array
+          title: Notfoundkeys
+      additionalProperties: false
+      type: object
+      required:
+      - items
+      - count
+      title: BatchItemResponse
     Body_uploadPdfMultipart:
       properties:
         file:
@@ -675,6 +1824,76 @@ components:
       - citationHtml
       - bibliographyHtml
       title: CitationResponse
+    CollectionListResponse:
+      properties:
+        collections:
+          items:
+            $ref: '#/components/schemas/CollectionSummary'
+          type: array
+          title: Collections
+        count:
+          type: integer
+          title: Count
+        total:
+          type: integer
+          title: Total
+        start:
+          type: integer
+          title: Start
+        limit:
+          type: integer
+          title: Limit
+        nextStart:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Nextstart
+      additionalProperties: false
+      type: object
+      required:
+      - collections
+      - count
+      - total
+      - start
+      - limit
+      title: CollectionListResponse
+    CollectionSummary:
+      properties:
+        collectionKey:
+          type: string
+          title: Collectionkey
+        name:
+          type: string
+          title: Name
+        parentCollectionKey:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Parentcollectionkey
+        path:
+          type: string
+          title: Path
+        depth:
+          type: integer
+          title: Depth
+        numCollections:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Numcollections
+        numItems:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Numitems
+      additionalProperties: false
+      type: object
+      required:
+      - collectionKey
+      - name
+      - path
+      - depth
+      title: CollectionSummary
     Creator:
       properties:
         displayName:
@@ -690,6 +1909,277 @@ components:
       required:
       - displayName
       title: Creator
+    DiscoveryAuthor:
+      properties:
+        name:
+          type: string
+          title: Name
+        openAlexId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Openalexid
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      title: DiscoveryAuthor
+    DiscoverySearchResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/DiscoveryWork'
+          type: array
+          title: Items
+        count:
+          type: integer
+          title: Count
+        total:
+          type: integer
+          title: Total
+        start:
+          type: integer
+          title: Start
+        limit:
+          type: integer
+          title: Limit
+        nextStart:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Nextstart
+      additionalProperties: false
+      type: object
+      required:
+      - items
+      - count
+      - total
+      - start
+      - limit
+      title: DiscoverySearchResponse
+    DiscoveryTopic:
+      properties:
+        name:
+          type: string
+          title: Name
+        openAlexId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Openalexid
+        score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Score
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      title: DiscoveryTopic
+    DiscoveryWork:
+      properties:
+        openAlexId:
+          type: string
+          title: Openalexid
+        title:
+          type: string
+          title: Title
+        doi:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Doi
+        publicationYear:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Publicationyear
+        publicationDate:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Publicationdate
+        workType:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Worktype
+        citedByCount:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Citedbycount
+        venue:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Venue
+        landingPageUrl:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Landingpageurl
+        pdfUrl:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Pdfurl
+        isOpenAccess:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Isopenaccess
+        abstract:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Abstract
+        authors:
+          items:
+            $ref: '#/components/schemas/DiscoveryAuthor'
+          type: array
+          title: Authors
+        topics:
+          items:
+            $ref: '#/components/schemas/DiscoveryTopic'
+          type: array
+          title: Topics
+        alreadyInLibrary:
+          type: boolean
+          title: Alreadyinlibrary
+          default: false
+        libraryItemKey:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Libraryitemkey
+        libraryMatchStrategy:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Librarymatchstrategy
+      additionalProperties: false
+      type: object
+      required:
+      - openAlexId
+      - title
+      title: DiscoveryWork
+    DuplicateGroup:
+      properties:
+        field:
+          type: string
+          title: Field
+        value:
+          type: string
+          title: Value
+        items:
+          items:
+            $ref: '#/components/schemas/SearchItem'
+          type: array
+          title: Items
+        count:
+          type: integer
+          title: Count
+      additionalProperties: false
+      type: object
+      required:
+      - field
+      - value
+      - items
+      - count
+      title: DuplicateGroup
+    DuplicateGroupsResponse:
+      properties:
+        groups:
+          items:
+            $ref: '#/components/schemas/DuplicateGroup'
+          type: array
+          title: Groups
+        count:
+          type: integer
+          title: Count
+        total:
+          type: integer
+          title: Total
+        start:
+          type: integer
+          title: Start
+        limit:
+          type: integer
+          title: Limit
+        nextStart:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Nextstart
+      additionalProperties: false
+      type: object
+      required:
+      - groups
+      - count
+      - total
+      - start
+      - limit
+      title: DuplicateGroupsResponse
+    DuplicateStats:
+      properties:
+        titleGroups:
+          type: integer
+          title: Titlegroups
+        doiGroups:
+          type: integer
+          title: Doigroups
+      additionalProperties: false
+      type: object
+      required:
+      - titleGroups
+      - doiGroups
+      title: DuplicateStats
+    FulltextPreviewItem:
+      properties:
+        itemKey:
+          type: string
+          title: Itemkey
+        attachmentKey:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Attachmentkey
+        content:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Content
+        source:
+          anyOf:
+          - $ref: '#/components/schemas/FulltextSource'
+          - type: 'null'
+        nextCursor:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Nextcursor
+        attachmentCandidates:
+          items:
+            type: string
+          type: array
+          title: Attachmentcandidates
+        errorCode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Errorcode
+        errorMessage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Errormessage
+      additionalProperties: false
+      type: object
+      required:
+      - itemKey
+      title: FulltextPreviewItem
     FulltextResponse:
       properties:
         itemKey:
@@ -793,6 +2283,98 @@ components:
       - version
       - config
       title: HealthResponse
+    ItemChangesResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/SearchItem'
+          type: array
+          title: Items
+        count:
+          type: integer
+          title: Count
+        total:
+          type: integer
+          title: Total
+        start:
+          type: integer
+          title: Start
+        limit:
+          type: integer
+          title: Limit
+        nextStart:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Nextstart
+        deletedItemKeys:
+          items:
+            type: string
+          type: array
+          title: Deleteditemkeys
+        deletedCount:
+          type: integer
+          title: Deletedcount
+          default: 0
+        sinceVersion:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Sinceversion
+        sinceTimestamp:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Sincetimestamp
+        latestVersion:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Latestversion
+      additionalProperties: false
+      type: object
+      required:
+      - items
+      - count
+      - total
+      - start
+      - limit
+      title: ItemChangesResponse
+    ItemCollectionsResponse:
+      properties:
+        itemKey:
+          type: string
+          title: Itemkey
+        collectionKeys:
+          items:
+            type: string
+          type: array
+          title: Collectionkeys
+        addedCollectionKeys:
+          items:
+            type: string
+          type: array
+          title: Addedcollectionkeys
+      additionalProperties: false
+      type: object
+      required:
+      - itemKey
+      - collectionKeys
+      title: ItemCollectionsResponse
+    ItemCollectionsWriteRequest:
+      properties:
+        collectionKeys:
+          items:
+            type: string
+          type: array
+          maxItems: 50
+          minItems: 1
+          title: Collectionkeys
+      additionalProperties: false
+      type: object
+      required:
+      - collectionKeys
+      title: ItemCollectionsWriteRequest
     ItemDetailResponse:
       properties:
         item:
@@ -802,6 +2384,39 @@ components:
       required:
       - item
       title: ItemDetailResponse
+    ItemListResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/SearchItem'
+          type: array
+          title: Items
+        count:
+          type: integer
+          title: Count
+        total:
+          type: integer
+          title: Total
+        start:
+          type: integer
+          title: Start
+        limit:
+          type: integer
+          title: Limit
+        nextStart:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Nextstart
+      additionalProperties: false
+      type: object
+      required:
+      - items
+      - count
+      - total
+      - start
+      - limit
+      title: ItemListResponse
     ItemNotesResponse:
       properties:
         itemKey:
@@ -822,6 +2437,182 @@ components:
       - notes
       - count
       title: ItemNotesResponse
+    ItemTagsResponse:
+      properties:
+        itemKey:
+          type: string
+          title: Itemkey
+        tags:
+          items:
+            type: string
+          type: array
+          title: Tags
+        addedTags:
+          items:
+            type: string
+          type: array
+          title: Addedtags
+        removedTag:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Removedtag
+      additionalProperties: false
+      type: object
+      required:
+      - itemKey
+      - tags
+      title: ItemTagsResponse
+    ItemTagsWriteRequest:
+      properties:
+        tags:
+          items:
+            type: string
+          type: array
+          maxItems: 50
+          minItems: 1
+          title: Tags
+      additionalProperties: false
+      type: object
+      required:
+      - tags
+      title: ItemTagsWriteRequest
+    ItemTypeCount:
+      properties:
+        itemType:
+          type: string
+          title: Itemtype
+        count:
+          type: integer
+          title: Count
+      additionalProperties: false
+      type: object
+      required:
+      - itemType
+      - count
+      title: ItemTypeCount
+    LibraryStatsResponse:
+      properties:
+        totalItems:
+          type: integer
+          title: Totalitems
+        itemTypeCounts:
+          items:
+            $ref: '#/components/schemas/ItemTypeCount'
+          type: array
+          title: Itemtypecounts
+        collectionCount:
+          type: integer
+          title: Collectioncount
+        tagCount:
+          type: integer
+          title: Tagcount
+        duplicateGroups:
+          $ref: '#/components/schemas/DuplicateStats'
+        lastModifiedVersion:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Lastmodifiedversion
+        searchIndex:
+          $ref: '#/components/schemas/SearchIndexStats'
+      additionalProperties: false
+      type: object
+      required:
+      - totalItems
+      - itemTypeCounts
+      - collectionCount
+      - tagCount
+      - duplicateGroups
+      - searchIndex
+      title: LibraryStatsResponse
+    MergeDuplicateItemsRequest:
+      properties:
+        primaryItemKey:
+          type: string
+          title: Primaryitemkey
+        duplicateItemKeys:
+          items:
+            type: string
+          type: array
+          maxItems: 20
+          minItems: 1
+          title: Duplicateitemkeys
+        dryRun:
+          type: boolean
+          title: Dryrun
+          default: true
+        moveAttachments:
+          type: boolean
+          title: Moveattachments
+          default: true
+        moveNotes:
+          type: boolean
+          title: Movenotes
+          default: true
+        mergeTags:
+          type: boolean
+          title: Mergetags
+          default: true
+        mergeCollections:
+          type: boolean
+          title: Mergecollections
+          default: true
+      additionalProperties: false
+      type: object
+      required:
+      - primaryItemKey
+      - duplicateItemKeys
+      title: MergeDuplicateItemsRequest
+    MergeDuplicateItemsResponse:
+      properties:
+        status:
+          $ref: '#/components/schemas/MergeDuplicateItemsStatus'
+        primaryItem:
+          $ref: '#/components/schemas/SearchItem'
+        duplicateItemKeys:
+          items:
+            type: string
+          type: array
+          title: Duplicateitemkeys
+        movedAttachmentKeys:
+          items:
+            type: string
+          type: array
+          title: Movedattachmentkeys
+        movedNoteKeys:
+          items:
+            type: string
+          type: array
+          title: Movednotekeys
+        addedTags:
+          items:
+            type: string
+          type: array
+          title: Addedtags
+        addedCollectionKeys:
+          items:
+            type: string
+          type: array
+          title: Addedcollectionkeys
+        deletedItemKeys:
+          items:
+            type: string
+          type: array
+          title: Deleteditemkeys
+      additionalProperties: false
+      type: object
+      required:
+      - status
+      - primaryItem
+      - duplicateItemKeys
+      title: MergeDuplicateItemsResponse
+    MergeDuplicateItemsStatus:
+      type: string
+      enum:
+      - dry_run
+      - merged
+      title: MergeDuplicateItemsStatus
     NoteDeleteResponse:
       properties:
         status:
@@ -996,6 +2787,192 @@ components:
       - mime_type
       - download_link
       title: OpenAIFileRef
+    RelatedItemsResponse:
+      properties:
+        itemKey:
+          type: string
+          title: Itemkey
+        items:
+          items:
+            $ref: '#/components/schemas/SearchItem'
+          type: array
+          title: Items
+        count:
+          type: integer
+          title: Count
+      additionalProperties: false
+      type: object
+      required:
+      - itemKey
+      - items
+      - count
+      title: RelatedItemsResponse
+    ResolveItemsResponse:
+      properties:
+        strategy:
+          type: string
+          title: Strategy
+        items:
+          items:
+            $ref: '#/components/schemas/SearchItem'
+          type: array
+          title: Items
+        count:
+          type: integer
+          title: Count
+      additionalProperties: false
+      type: object
+      required:
+      - strategy
+      - items
+      - count
+      title: ResolveItemsResponse
+    ReviewPackItem:
+      properties:
+        item:
+          $ref: '#/components/schemas/SearchItem'
+        citation:
+          $ref: '#/components/schemas/CitationResponse'
+        fulltextPreview:
+          anyOf:
+          - $ref: '#/components/schemas/FulltextPreviewItem'
+          - type: 'null'
+        notes:
+          items:
+            $ref: '#/components/schemas/NoteRecord'
+          type: array
+          title: Notes
+        relatedItems:
+          items:
+            $ref: '#/components/schemas/SearchItem'
+          type: array
+          title: Relateditems
+      additionalProperties: false
+      type: object
+      required:
+      - item
+      - citation
+      title: ReviewPackItem
+    ReviewPackRequest:
+      properties:
+        itemKeys:
+          items:
+            type: string
+          type: array
+          maxItems: 20
+          minItems: 1
+          title: Itemkeys
+        maxFulltextChars:
+          type: integer
+          minimum: 1000.0
+          title: Maxfulltextchars
+          default: 3000
+        citationStyle:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Citationstyle
+        citationLocale:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Citationlocale
+        includeRelated:
+          type: boolean
+          title: Includerelated
+          default: true
+        includeNotes:
+          type: boolean
+          title: Includenotes
+          default: true
+        includeFulltextPreview:
+          type: boolean
+          title: Includefulltextpreview
+          default: true
+      additionalProperties: false
+      type: object
+      required:
+      - itemKeys
+      title: ReviewPackRequest
+    ReviewPackResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/ReviewPackItem'
+          type: array
+          title: Items
+        count:
+          type: integer
+          title: Count
+        notFoundKeys:
+          items:
+            type: string
+          type: array
+          title: Notfoundkeys
+      additionalProperties: false
+      type: object
+      required:
+      - items
+      - count
+      title: ReviewPackResponse
+    SearchHint:
+      properties:
+        field:
+          type: string
+          title: Field
+        snippet:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Snippet
+      additionalProperties: false
+      type: object
+      required:
+      - field
+      title: SearchHint
+    SearchIndexStats:
+      properties:
+        enabled:
+          type: boolean
+          title: Enabled
+        ready:
+          type: boolean
+          title: Ready
+        recordCount:
+          type: integer
+          title: Recordcount
+          default: 0
+        refreshedAt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Refreshedat
+        lastModifiedVersion:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Lastmodifiedversion
+        lastSyncMethod:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Lastsyncmethod
+        lastError:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Lasterror
+        lastErrorAt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Lasterrorat
+      additionalProperties: false
+      type: object
+      required:
+      - enabled
+      - ready
+      title: SearchIndexStats
     SearchItem:
       properties:
         itemKey:
@@ -1007,6 +2984,21 @@ components:
         title:
           type: string
           title: Title
+        date:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Date
+        dateAdded:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Dateadded
+        dateModified:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Datemodified
         year:
           anyOf:
           - type: string
@@ -1017,6 +3009,61 @@ components:
           - type: string
           - type: 'null'
           title: Doi
+        abstractNote:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Abstractnote
+        publicationTitle:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Publicationtitle
+        venue:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Venue
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Url
+        publisher:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Publisher
+        bookTitle:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Booktitle
+        proceedingsTitle:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Proceedingstitle
+        conferenceName:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Conferencename
+        language:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Language
+        extra:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Extra
+        relations:
+          items:
+            type: string
+          type: array
+          title: Relations
         creators:
           items:
             $ref: '#/components/schemas/Creator'
@@ -1054,18 +3101,222 @@ components:
       properties:
         items:
           items:
-            $ref: '#/components/schemas/SearchItem'
+            $ref: '#/components/schemas/SearchResultItem'
           type: array
           title: Items
         count:
           type: integer
           title: Count
+        total:
+          type: integer
+          title: Total
+        start:
+          type: integer
+          title: Start
+        limit:
+          type: integer
+          title: Limit
+        nextStart:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Nextstart
       additionalProperties: false
       type: object
       required:
       - items
       - count
+      - total
+      - start
+      - limit
       title: SearchResponse
+    SearchResultItem:
+      properties:
+        itemKey:
+          type: string
+          title: Itemkey
+        itemType:
+          type: string
+          title: Itemtype
+        title:
+          type: string
+          title: Title
+        date:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Date
+        dateAdded:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Dateadded
+        dateModified:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Datemodified
+        year:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Year
+        DOI:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Doi
+        abstractNote:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Abstractnote
+        publicationTitle:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Publicationtitle
+        venue:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Venue
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Url
+        publisher:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Publisher
+        bookTitle:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Booktitle
+        proceedingsTitle:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Proceedingstitle
+        conferenceName:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Conferencename
+        language:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Language
+        extra:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Extra
+        relations:
+          items:
+            type: string
+          type: array
+          title: Relations
+        creators:
+          items:
+            $ref: '#/components/schemas/Creator'
+          type: array
+          title: Creators
+        tags:
+          items:
+            type: string
+          type: array
+          title: Tags
+        collectionKeys:
+          items:
+            type: string
+          type: array
+          title: Collectionkeys
+        attachments:
+          items:
+            $ref: '#/components/schemas/AttachmentSummary'
+          type: array
+          title: Attachments
+        aiNotes:
+          items:
+            $ref: '#/components/schemas/AINoteSummary'
+          type: array
+          title: Ainotes
+        searchHints:
+          items:
+            $ref: '#/components/schemas/SearchHint'
+          type: array
+          title: Searchhints
+        score:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Score
+      additionalProperties: false
+      type: object
+      required:
+      - itemKey
+      - itemType
+      - title
+      - creators
+      title: SearchResultItem
+    TagListResponse:
+      properties:
+        tags:
+          items:
+            $ref: '#/components/schemas/TagSummary'
+          type: array
+          title: Tags
+        count:
+          type: integer
+          title: Count
+        total:
+          type: integer
+          title: Total
+        start:
+          type: integer
+          title: Start
+        limit:
+          type: integer
+          title: Limit
+        nextStart:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Nextstart
+      additionalProperties: false
+      type: object
+      required:
+      - tags
+      - count
+      - total
+      - start
+      - limit
+      title: TagListResponse
+    TagSummary:
+      properties:
+        tag:
+          type: string
+          title: Tag
+        type:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Type
+        numItems:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Numitems
+      additionalProperties: false
+      type: object
+      required:
+      - tag
+      title: TagSummary
     UploadPdfActionRequest:
       properties:
         itemKey:
@@ -1276,6 +3527,3 @@ components:
     HTTPBearer:
       type: http
       scheme: bearer
-servers:
-- url: https://zotero-bridge.example.com
-  description: Public bridge endpoint

@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     )
     zotero_library_id: str = Field(..., alias="ZOTERO_LIBRARY_ID")
     zotero_api_key: str = Field(..., alias="ZOTERO_API_KEY")
+    openalex_api_base: str = Field("https://api.openalex.org", alias="OPENALEX_API_BASE")
+    openalex_api_key: str | None = Field(None, alias="OPENALEX_API_KEY")
 
     default_collection_key: str | None = Field(None, alias="DEFAULT_COLLECTION_KEY")
     default_note_tag_prefix: str = Field("zbridge", alias="DEFAULT_NOTE_TAG_PREFIX")
@@ -40,6 +42,15 @@ class Settings(BaseSettings):
     local_fulltext_cache_dir: str = Field(
         ".cache/fulltext",
         alias="LOCAL_FULLTEXT_CACHE_DIR",
+    )
+    enable_local_search_index: bool = Field(True, alias="ENABLE_LOCAL_SEARCH_INDEX")
+    local_search_index_dir: str = Field(
+        ".cache/search-index",
+        alias="LOCAL_SEARCH_INDEX_DIR",
+    )
+    local_search_index_refresh_seconds: int = Field(
+        300,
+        alias="LOCAL_SEARCH_INDEX_REFRESH_SECONDS",
     )
 
     max_action_request_chars: int = Field(100000, alias="MAX_ACTION_REQUEST_CHARS")
@@ -64,6 +75,10 @@ class Settings(BaseSettings):
     @property
     def local_fulltext_cache_path(self) -> Path:
         return Path(self.local_fulltext_cache_dir)
+
+    @property
+    def local_search_index_path(self) -> Path:
+        return Path(self.local_search_index_dir)
 
 
 @lru_cache(maxsize=1)

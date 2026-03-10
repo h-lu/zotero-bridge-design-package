@@ -16,14 +16,17 @@ from app.errors import (
     request_validation_error_handler,
     unexpected_error_handler,
 )
+from app.routes.discovery import router as discovery_router
 from app.routes.health import router as health_router
 from app.routes.items import router as items_router
+from app.routes.library import router as library_router
 from app.routes.notes import router as notes_router
 from app.routes.papers import router as papers_router
 from app.services.bridge_service import BridgeService
 from app.services.doi_resolver import DOIResolver
 from app.services.fulltext import FulltextService
 from app.services.local_fulltext_store import LocalFulltextStore
+from app.services.local_search_index import LocalSearchIndex
 from app.services.note_renderer import NoteRenderer
 from app.services.zotero_client import ZoteroClient
 
@@ -38,6 +41,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if settings.enable_local_fulltext_cache
         else None
     )
+    local_search_index = (
+        LocalSearchIndex(settings.local_search_index_path)
+        if settings.enable_local_search_index
+        else None
+    )
     bridge_service = BridgeService(
         settings=settings,
         http_client=http_client,
@@ -49,6 +57,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             hard_max_chars=settings.fulltext_max_chars_hard_limit,
         ),
         local_fulltext_store=local_fulltext_store,
+        local_search_index=local_search_index,
     )
     app.state.bridge_service = bridge_service
     app.state.zotero_key_valid = None
@@ -58,10 +67,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.zotero_key_valid = await bridge_service.validate_upstream_key()
         except BridgeError:
             app.state.zotero_key_valid = False
+    await bridge_service.startup()
 
     try:
         yield
     finally:
+        await bridge_service.shutdown()
         await http_client.aclose()
 
 
@@ -74,6 +85,8 @@ app = FastAPI(
 app.include_router(health_router)
 app.include_router(papers_router)
 app.include_router(items_router)
+app.include_router(library_router)
+app.include_router(discovery_router)
 app.include_router(notes_router)
 
 app.add_exception_handler(BridgeError, cast(Any, bridge_error_handler))
