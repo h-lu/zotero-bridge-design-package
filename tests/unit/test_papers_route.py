@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 
 from app.errors import BridgeError
@@ -23,7 +25,7 @@ async def test_read_upload_content_stops_when_size_limit_is_exceeded() -> None:
     upload = FakeUploadFile([b"%PDF", b"12345", b"67890"])
 
     with pytest.raises(BridgeError) as exc_info:
-        await _read_upload_content(upload, max_bytes=8)
+        await _read_upload_content(cast(Any, upload), max_bytes=8)
 
     assert exc_info.value.code == "FILE_TOO_LARGE"
     assert exc_info.value.status_code == 413

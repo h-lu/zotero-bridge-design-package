@@ -28,13 +28,11 @@ class ZoteroClient:
         *,
         q: str,
         limit: int,
-        include_fulltext: bool,
     ) -> list[dict[str, Any]]:
         items, _ = await self.search_items_page_raw(
             q=q,
             start=0,
             limit=limit,
-            include_fulltext=include_fulltext,
             item_type=None,
             tag=None,
             collection_key=None,
@@ -49,7 +47,6 @@ class ZoteroClient:
         q: str,
         start: int,
         limit: int,
-        include_fulltext: bool,
         item_type: str | None,
         tag: str | None,
         collection_key: str | None,
@@ -62,8 +59,6 @@ class ZoteroClient:
             "limit": limit,
             "format": "json",
         }
-        if include_fulltext:
-            params["qmode"] = "everything"
         if item_type:
             params["itemType"] = item_type
         if tag:
@@ -382,23 +377,6 @@ class ZoteroClient:
             upstream_status=412,
         )
 
-    async def get_fulltext(self, attachment_key: str) -> dict[str, Any]:
-        response = await self._request(
-            "GET",
-            self._library_path("items", attachment_key, "fulltext"),
-            expected_statuses={200},
-            not_found_code="FULLTEXT_NOT_AVAILABLE",
-            not_found_message="Full text is not available for this attachment",
-        )
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise BridgeError(
-                code="UPSTREAM_ERROR",
-                message="Unexpected Zotero fulltext payload",
-                status_code=502,
-            )
-        return payload
-
     async def get_citation(
         self,
         *,
@@ -530,7 +508,6 @@ class ZoteroClient:
         raw_items = await self.search_items_raw(
             q=filename,
             limit=25,
-            include_fulltext=False,
         )
         attachments: list[dict[str, Any]] = []
         for item in raw_items:
@@ -538,6 +515,44 @@ class ZoteroClient:
             if data.get("itemType") == "attachment" and not data.get("parentItem"):
                 attachments.append(item)
         return attachments
+
+    async def download_attachment_file(self, attachment_key: str) -> tuple[bytes, str | None]:
+        try:
+            response = await self._client.request(
+                "GET",
+                (
+                    f"{self._settings.zotero_api_base.rstrip('/')}"
+                    f"{self._library_path('items', attachment_key, 'file')}"
+                ),
+                headers={
+                    "Authorization": f"Bearer {self._settings.zotero_api_key}",
+                    "Zotero-API-Version": str(self._settings.zotero_api_version),
+                    "Accept": "application/octet-stream",
+                },
+                timeout=120.0,
+                follow_redirects=True,
+            )
+        except httpx.RequestError as exc:
+            raise BridgeError(
+                code="DOWNLOAD_FAILED",
+                message="Zotero attachment download failed",
+                status_code=502,
+            ) from exc
+        if response.status_code == 404:
+            raise BridgeError(
+                code="ATTACHMENT_NOT_FOUND",
+                message="Attachment file not found",
+                status_code=404,
+                upstream_status=404,
+            )
+        if response.status_code != 200:
+            raise BridgeError(
+                code="DOWNLOAD_FAILED",
+                message="Zotero attachment download failed",
+                status_code=502,
+                upstream_status=response.status_code,
+            )
+        return response.content, response.headers.get("Content-Type")
 
     async def _request(
         self,

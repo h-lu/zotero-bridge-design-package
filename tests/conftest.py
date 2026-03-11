@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import ipaddress
+import sys
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.config import get_settings
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from app.config import get_settings  # noqa: E402
 
 
 @pytest.fixture
@@ -18,16 +23,15 @@ def test_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ZOTERO_LIBRARY_TYPE", "user")
     monkeypatch.setenv("ZOTERO_LIBRARY_ID", "123456")
     monkeypatch.setenv("ZOTERO_API_KEY", "zotero-test-key")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "")
     monkeypatch.setenv("DEFAULT_CITATION_STYLE", "apa")
     monkeypatch.setenv("DEFAULT_CITATION_LOCALE", "en-US")
-    monkeypatch.setenv("FULLTEXT_DEFAULT_MAX_CHARS", "8000")
-    monkeypatch.setenv("FULLTEXT_MAX_CHARS_HARD_LIMIT", "12000")
-    monkeypatch.setenv("ENABLE_LOCAL_FULLTEXT_CACHE", "true")
-    monkeypatch.setenv("LOCAL_FULLTEXT_CACHE_DIR", str(tmp_path / "fulltext-cache"))
     monkeypatch.setenv("ENABLE_LOCAL_SEARCH_INDEX", "true")
     monkeypatch.setenv("LOCAL_SEARCH_INDEX_DIR", str(tmp_path / "search-index"))
     monkeypatch.setenv("LOCAL_SEARCH_INDEX_REFRESH_SECONDS", "300")
     monkeypatch.setenv("MAX_UPLOAD_FILE_MB", "15")
+    monkeypatch.setenv("MAX_FILE_URL_REDIRECTS", "3")
+    monkeypatch.setenv("DOWNLOAD_HANDOFF_TTL_SECONDS", "900")
     monkeypatch.setenv("STARTUP_VALIDATE_ZOTERO_KEY", "false")
     get_settings.cache_clear()
 
@@ -53,12 +57,12 @@ def auth_headers() -> dict[str, str]:
 
 @pytest.fixture(autouse=True)
 def patch_example_download_host_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.services.bridge_service import BridgeService
+    from app.services.remote_fetch_guard import RemoteFetchGuard
 
-    original = BridgeService._resolve_download_host_ips
+    original = RemoteFetchGuard._resolve_download_host_ips
 
     async def patched(
-        self: BridgeService,
+        self: RemoteFetchGuard,
         host: str,
         *,
         port: int,
@@ -67,4 +71,4 @@ def patch_example_download_host_resolution(monkeypatch: pytest.MonkeyPatch) -> N
             return [ipaddress.ip_address("93.184.216.34")]
         return await original(self, host, port=port)
 
-    monkeypatch.setattr(BridgeService, "_resolve_download_host_ips", patched)
+    monkeypatch.setattr(RemoteFetchGuard, "_resolve_download_host_ips", patched)

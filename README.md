@@ -1,169 +1,87 @@
-# Zotero Bridge Design Package
+# Zotero Bridge 2.0
 
-This package specifies a production-ready **REST bridge** between ChatGPT/Codex and a Zotero library.
+`zotero-bridge is a Zotero I/O and workflow layer, not a PDF reading engine.`
 
-## What this bridge does
+本项目是 Zotero 的存取与工作流桥接层，不是 PDF 阅读引擎。
 
-- **Write to Zotero** through the **Zotero Web API v3**
-  - create bibliographic items from DOI metadata
-  - upload PDF attachments
-  - add tags and collections to existing items
-  - write AI reading outputs back to Zotero as child notes
-  - merge duplicate bibliographic items
-- **Read from Zotero** through the **Zotero Web API v3**
-  - browse library items with pagination and filters
-  - inspect library stats and recent changes
-  - search library items
-  - run advanced fielded searches across title, creator, abstract, venue, DOI, tags, notes, and full text
-  - resolve exact items by DOI/title
-  - list collections and tags
-  - batch fetch item records
-  - find likely duplicate items
-  - follow related-item links
-  - resolve attachments
-  - retrieve chunked full text
-  - preview full text across multiple items in one request
-  - build review-ready bundles with citations, notes, related items, and full-text previews
-  - retrieve formatted citations/bibliographies
-- **Discover papers outside Zotero**
-  - query OpenAlex for recent or highly cited papers related to a topic
-- **Expose a public HTTPS API**
-  - ChatGPT uses the API as a **GPT Action**
-  - Codex can use the same API directly over HTTP
-- **Optionally add a local desktop relay later**
-  - for faster access to Zotero Desktop `localhost:23119` when web full-text sync is unavailable
+## What It Does
 
-## Why this design
+- Read and search Zotero items, collections, tags, notes, citations, related items, and duplicates.
+- Ingest papers by DOI, structured metadata, or discovery hits.
+- Upload and manage PDF attachments.
+- Hand off attachments to ChatGPT/Codex through short-lived proxy-download URLs.
+- Write, update, read, and delete structured AI notes stored as Zotero child notes.
 
-1. **No MCP is required for v1.**
-   - ChatGPT Actions are the shortest path for ChatGPT.
-   - Codex can call the same REST API directly.
-2. **All writes stay server-side.**
-   - The Zotero API key never goes to ChatGPT or Codex.
-3. **AI reading results go back into Zotero cleanly.**
-   - Each AI note is stored as a Zotero **child note** under the parent paper.
-4. **The package is optimized for implementation by Codex.**
-   - two OpenAPI files
-   - endpoint semantics
-   - verification plan
-   - smoke tests
-   - deployment example
+## What It No Longer Does
 
-## Scope
+- No bridge-side PDF parsing.
+- No OCR.
+- No fulltext chunking.
+- No fulltext preview.
+- No bridge-side paper understanding or synthesis.
 
-### MVP (build now)
-- `/healthz`
-- `GET /v1/library/stats`
-- `GET /v1/items`
-- `POST /v1/items/batch`
-- `GET /v1/items/changes`
-- `GET /v1/items/resolve`
-- `GET /v1/items/duplicates`
-- `POST /v1/items/duplicates/merge`
-- `GET /v1/items/search-advanced`
-- `POST /v1/items/review-pack`
-- `POST /v1/papers/add-by-doi`
-- `POST /v1/papers/upload-pdf-action`
-- `POST /v1/papers/upload-pdf-multipart`
-- `GET /v1/collections`
-- `GET /v1/discovery/search`
-- `GET /v1/tags`
-- `GET /v1/items/search`
-- `POST /v1/items/fulltext/batch-preview`
-- `GET /v1/items/{itemKey}`
-- `GET /v1/items/{itemKey}/related`
-- `POST /v1/items/{itemKey}/tags`
-- `DELETE /v1/items/{itemKey}/tags/{tag}`
-- `POST /v1/items/{itemKey}/collections`
-- `GET /v1/items/{itemKey}/fulltext`
-- `GET /v1/items/{itemKey}/notes`
-- `POST /v1/items/{itemKey}/notes`
-- `POST /v1/items/{itemKey}/notes/upsert-ai-note`
-- `GET /v1/items/{itemKey}/citation`
+## Breaking Changes in 2.0.0
 
-### Phase 2 (optional)
-- desktop relay against Zotero Desktop local API on `localhost:23119`
-- background full-text cache warmup
-- remote MCP wrapper for Codex/ChatGPT Apps if you later want one
+- `GET /v1/items/{itemKey}/fulltext` has been removed.
+- `POST /v1/items/fulltext/batch-preview` has been removed.
+- `review-pack` no longer returns `fulltextPreview`.
+- advanced search no longer exposes `fulltext` as a searchable field.
+- bridge-side `pypdf` and local fulltext cache have been removed.
 
-## Recommended stack
+## New/Upgraded APIs
 
-- Python 3.12
-- FastAPI
-- httpx
-- pydantic v2 + pydantic-settings
-- uvicorn
-- markdown-it-py or mistune for Markdown → HTML conversion
-- bleach for HTML sanitization
-- pytest + respx for tests
-- uv for dependency management
+- `GET /v1/items/{itemKey}/attachments`
+- `GET /v1/attachments/{attachmentKey}`
+- `POST /v1/attachments/{attachmentKey}/handoff`
+- `GET /v1/attachments/download/{token}`
+- `POST /v1/papers/import-metadata`
+- `POST /v1/papers/import-discovery-hit`
+- structured AI note fields: `schemaVersion`, `payload`, `provenance`
 
-## Main design choices
+## Attachment Handoff
 
-### 1) Writes always use Zotero Web API v3
-This is the canonical write path for:
-- creating items
-- updating items
-- creating child notes
-- uploading PDF attachments
+The bridge does not read PDFs for the model. It securely delivers attachments so the agent can read them directly.
 
-### 2) Reads prefer Zotero Web API full text
-If `Sync full-text content` is enabled in Zotero Desktop, extracted PDF text is synced and becomes available through the Web API. That keeps v1 simple and avoids exposing a local-only service to the public internet.
+- handoff tokens are short-lived
+- proxy download hides Zotero credentials
+- `fileUrl` uploads are guarded against SSRF, unsafe redirects, oversized files, and non-PDF payloads
 
-### 3) AI outputs are stored as child notes
-The bridge writes ChatGPT/Codex outputs back into Zotero as child notes with machine-readable tags:
+## Structured Notes
 
-- `zbridge`
-- `zbridge:agent:<agent>`
-- `zbridge:type:<noteType>`
-- `zbridge:slot:<slot>`
+Structured AI notes are stored in Zotero child notes as:
 
-These tags make note upsert deterministic without relying on brittle text search.
+- human-readable HTML content for Zotero users
+- a machine-readable embedded block for round-trip parsing
 
-### 4) The API is public-HTTPS only
-Use your Singapore server as the public bridge endpoint. Put TLS in front with Caddy/Nginx. Standard port 443 is preferred, but the bridge also works behind an HTTPS listener on a non-standard port such as `:8888`.
+Recommended canonical note types:
 
-## File guide
+- `paper.summary`
+- `paper.methods`
+- `paper.findings`
+- `paper.limitations`
+- `paper.future_work`
+- `paper.relevance`
+- `synthesis.theme`
+- `synthesis.conflict`
+- `synthesis.gap_candidate`
+- `workflow.todo`
 
-- `README.md` — overview
-- `ARCHITECTURE.md` — detailed behavior and data flow
-- `OPTIONAL_LOCAL_RELAY.md` — future design for `localhost:23119`
-- `openapi.full.yaml` — full bridge contract for implementation and direct HTTP use
-- `openapi.actions.yaml` — trimmed GPT Actions contract
-- `CODEX_HANDOFF.md` — exact implementation prompt for Codex
-- `TEST_PLAN.md` — verification strategy and acceptance criteria
-- `.env.example` — required environment variables
-- `scripts/smoke_test.sh` — curl-based smoke tests
-- `deploy/Caddyfile.example` — minimal HTTPS reverse proxy example
+## Contracts
 
-## Suggested implementation order
+- live docs: `https://hblu.top:8888/docs`
+- live OpenAPI JSON: `https://hblu.top:8888/openapi.json`
+- full contract: [`openapi.full.yaml`](/home/ubuntu/zotero-bridge-design-package/openapi.full.yaml)
+- GPT Actions subset: [`openapi.actions.yaml`](/home/ubuntu/zotero-bridge-design-package/openapi.actions.yaml)
+- agent integration guide: [`AGENT_INTEGRATION.md`](/home/ubuntu/zotero-bridge-design-package/AGENT_INTEGRATION.md)
+- repo-local Codex skill: [`skills/zotero-bridge/SKILL.md`](/home/ubuntu/zotero-bridge-design-package/skills/zotero-bridge/SKILL.md)
 
-1. project scaffold + config
-2. Zotero client wrapper
-3. DOI metadata resolver
-4. search + item detail endpoints
-5. add-by-doi
-6. note upsert
-7. PDF upload
-8. full-text chunking
-9. citation endpoint
-10. tests + deployment
+## Verification
 
-## Notes on ChatGPT vs Codex
+The repo is expected to pass:
 
-### ChatGPT
-Use `openapi.actions.yaml` in a Custom GPT Action:
-- auth type: **API Key**
-- auth style: **Bearer**
-- include the browse/resolve endpoints so the model can page, filter, and inspect the library without guessing search keywords
-- expose the stats/changes/related/fulltext-preview endpoints too if you want the model to maintain a lightweight sync view of the library
-- include `search-advanced`, `review-pack`, and `discovery/search` if the model will do literature review or topic scouting
-
-### Codex
-For v1, do **not** build MCP first.
-Use:
-- `curl`
-- a tiny Python client
-- or a repo-local helper script
-
-Later, if you want, you can wrap the same REST API with a small HTTP MCP server.
+```bash
+uv sync
+pytest
+ruff check .
+mypy app tests
+```

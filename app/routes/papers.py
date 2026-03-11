@@ -11,6 +11,10 @@ from app.errors import BridgeError
 from app.models import (
     AddByDOIRequest,
     AddByDOIResponse,
+    ImportDiscoveryHitRequest,
+    ImportDiscoveryHitResponse,
+    ImportMetadataRequest,
+    ImportMetadataResponse,
     UploadPdfActionRequest,
     UploadPdfResponse,
 )
@@ -48,6 +52,30 @@ async def add_by_doi(
     bridge: BridgeDep,
 ) -> AddByDOIResponse:
     return await bridge.add_by_doi(payload)
+
+
+@router.post(
+    "/import-metadata",
+    response_model=ImportMetadataResponse,
+    operation_id="importPaperMetadata",
+)
+async def import_metadata(
+    payload: ImportMetadataRequest,
+    bridge: BridgeDep,
+) -> ImportMetadataResponse:
+    return await bridge.import_metadata(payload)
+
+
+@router.post(
+    "/import-discovery-hit",
+    response_model=ImportDiscoveryHitResponse,
+    operation_id="importDiscoveryHit",
+)
+async def import_discovery_hit(
+    payload: ImportDiscoveryHitRequest,
+    bridge: BridgeDep,
+) -> ImportDiscoveryHitResponse:
+    return await bridge.import_discovery_hit(payload)
 
 
 @router.post(

@@ -7,7 +7,6 @@ services:
     env_file:
       - ../.env
     volumes:
-      - ../.cache/fulltext:/app/.cache/fulltext
       - ../.cache/search-index:/app/.cache/search-index
     restart: unless-stopped
 

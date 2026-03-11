@@ -81,7 +81,7 @@ class DOIResolver:
                 f"https://doi.org/{quote(doi, safe='')}",
                 headers={
                     "Accept": CSL_JSON_ACCEPT,
-                    "User-Agent": "zotero-bridge/1.0.0",
+                    "User-Agent": "zotero-bridge/2.0.0",
                 },
                 timeout=20.0,
                 follow_redirects=True,
@@ -106,7 +106,7 @@ class DOIResolver:
         try:
             response = await self._client.get(
                 f"https://api.crossref.org/works/{quote(doi, safe='')}",
-                headers={"User-Agent": "zotero-bridge/1.0.0"},
+                headers={"User-Agent": "zotero-bridge/2.0.0"},
                 timeout=20.0,
             )
         except httpx.RequestError as exc:
