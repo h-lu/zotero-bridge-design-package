@@ -58,10 +58,28 @@ def _format_validation_message(exc: RequestValidationError | ValidationError) ->
     return f"{location}: {message}" if location else message
 
 
+def _is_missing_zotero_api_key_error(exc: RequestValidationError) -> bool:
+    for error in exc.errors():
+        if tuple(error.get("loc", ())) == ("header", "X-Zotero-API-Key") and error.get(
+            "type"
+        ) == "missing":
+            return True
+    return False
+
+
 async def request_validation_error_handler(
     request: Request,
     exc: RequestValidationError,
 ) -> JSONResponse:
+    if _is_missing_zotero_api_key_error(exc):
+        return JSONResponse(
+            status_code=401,
+            content=error_payload(
+                code="MISSING_ZOTERO_API_KEY",
+                message="Missing X-Zotero-API-Key",
+                request_id=get_request_id(request),
+            ),
+        )
     return JSONResponse(
         status_code=400,
         content=error_payload(
@@ -81,4 +99,3 @@ async def unexpected_error_handler(request: Request, _: Exception) -> JSONRespon
             request_id=get_request_id(request),
         ),
     )
-

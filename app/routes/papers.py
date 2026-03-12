@@ -4,13 +4,16 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 
-from app.auth import require_bearer_auth
 from app.config import get_settings
 from app.dependencies import get_bridge_service
 from app.errors import BridgeError
 from app.models import (
     AddByDOIRequest,
     AddByDOIResponse,
+    ImportDiscoveryHitRequest,
+    ImportDiscoveryHitResponse,
+    ImportMetadataRequest,
+    ImportMetadataResponse,
     UploadPdfActionRequest,
     UploadPdfResponse,
 )
@@ -21,7 +24,6 @@ MULTIPART_READ_CHUNK_SIZE = 1024 * 1024
 router = APIRouter(
     prefix="/v1/papers",
     tags=["Papers"],
-    dependencies=[Depends(require_bearer_auth)],
 )
 BridgeDep = Annotated[BridgeService, Depends(get_bridge_service)]
 FileDep = Annotated[UploadFile, File(...)]
@@ -48,6 +50,30 @@ async def add_by_doi(
     bridge: BridgeDep,
 ) -> AddByDOIResponse:
     return await bridge.add_by_doi(payload)
+
+
+@router.post(
+    "/import-metadata",
+    response_model=ImportMetadataResponse,
+    operation_id="importPaperMetadata",
+)
+async def import_metadata(
+    payload: ImportMetadataRequest,
+    bridge: BridgeDep,
+) -> ImportMetadataResponse:
+    return await bridge.import_metadata(payload)
+
+
+@router.post(
+    "/import-discovery-hit",
+    response_model=ImportDiscoveryHitResponse,
+    operation_id="importDiscoveryHit",
+)
+async def import_discovery_hit(
+    payload: ImportDiscoveryHitRequest,
+    bridge: BridgeDep,
+) -> ImportDiscoveryHitResponse:
+    return await bridge.import_discovery_hit(payload)
 
 
 @router.post(

@@ -4,18 +4,15 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from app.auth import require_bearer_auth
 from app.config import get_settings
 from app.dependencies import get_bridge_service
 from app.models import (
     AdvancedSearchResponse,
-    BatchFulltextPreviewRequest,
-    BatchFulltextPreviewResponse,
+    AttachmentListResponse,
     BatchItemRequest,
     BatchItemResponse,
     CitationResponse,
     DuplicateGroupsResponse,
-    FulltextResponse,
     ItemChangesResponse,
     ItemCollectionsResponse,
     ItemCollectionsWriteRequest,
@@ -41,10 +38,8 @@ from app.services.bridge_service import BridgeService
 router = APIRouter(
     prefix="/v1/items",
     tags=["Items"],
-    dependencies=[Depends(require_bearer_auth)],
 )
 BridgeDep = Annotated[BridgeService, Depends(get_bridge_service)]
-_settings = get_settings()
 
 
 @router.get("", response_model=ItemListResponse, operation_id="listItems")
@@ -79,7 +74,6 @@ async def search_items(
     q: str,
     start: int = Query(default=0, ge=0),
     limit: int = Query(default=10, ge=1, le=25),
-    includeFulltext: bool = Query(default=True),
     includeAttachments: bool = Query(default=True),
     includeNotes: bool = Query(default=True),
     itemType: str | None = Query(default=None),
@@ -92,7 +86,6 @@ async def search_items(
         q=q,
         start=start,
         limit=limit,
-        include_fulltext=includeFulltext,
         include_attachments=includeAttachments,
         include_notes=includeNotes,
         item_type=itemType,
@@ -113,7 +106,7 @@ async def search_items_advanced(
     q: str | None = Query(default=None),
     fields: str = Query(
         default="title,creator,abstract,venue,doi,tag",
-        pattern="^(title|creator|abstract|venue|doi|tag|note|fulltext)(,(title|creator|abstract|venue|doi|tag|note|fulltext))*$",
+        pattern="^(title|creator|abstract|venue|doi|tag|note)(,(title|creator|abstract|venue|doi|tag|note))*$",
     ),
     title: str | None = Query(default=None),
     author: str | None = Query(default=None),
@@ -127,7 +120,6 @@ async def search_items_advanced(
     itemType: str | None = Query(default=None),
     collectionKey: str | None = Query(default=None),
     tag: str | None = Query(default=None),
-    hasFulltext: bool | None = Query(default=None),
     hasAiNotes: bool | None = Query(default=None),
     includeAttachments: bool = Query(default=False),
     includeNotes: bool = Query(default=False),
@@ -149,7 +141,6 @@ async def search_items_advanced(
         item_type=itemType,
         collection_key=collectionKey,
         tag=tag,
-        has_fulltext=hasFulltext,
         has_ai_notes=hasAiNotes,
         include_attachments=includeAttachments,
         include_notes=includeNotes,
@@ -242,22 +233,6 @@ async def list_item_changes(
     )
 
 
-@router.post(
-    "/fulltext/batch-preview",
-    response_model=BatchFulltextPreviewResponse,
-    operation_id="batchFulltextPreview",
-)
-async def batch_fulltext_preview(
-    bridge: BridgeDep,
-    payload: BatchFulltextPreviewRequest,
-) -> BatchFulltextPreviewResponse:
-    return await bridge.batch_fulltext_preview(
-        item_keys=payload.itemKeys,
-        max_chars=payload.maxChars,
-        prefer_source=payload.preferSource,
-    )
-
-
 @router.post("/review-pack", response_model=ReviewPackResponse, operation_id="buildReviewPack")
 async def build_review_pack(
     bridge: BridgeDep,
@@ -292,6 +267,18 @@ async def get_item_detail(
     bridge: BridgeDep,
 ) -> ItemDetailResponse:
     return await bridge.get_item_detail(itemKey)
+
+
+@router.get(
+    "/{itemKey}/attachments",
+    response_model=AttachmentListResponse,
+    operation_id="listItemAttachments",
+)
+async def list_item_attachments(
+    itemKey: str,
+    bridge: BridgeDep,
+) -> AttachmentListResponse:
+    return await bridge.list_item_attachments(itemKey)
 
 
 @router.get("/{itemKey}/notes", response_model=ItemNotesResponse, operation_id="listItemNotes")
@@ -346,32 +333,6 @@ async def add_item_to_collections(
     return await bridge.add_item_to_collections(
         item_key=itemKey,
         collection_keys=payload.collectionKeys,
-    )
-
-
-@router.get(
-    "/{itemKey}/fulltext",
-    response_model=FulltextResponse,
-    operation_id="getItemFulltext",
-)
-async def get_item_fulltext(
-    bridge: BridgeDep,
-    itemKey: str,
-    attachmentKey: str | None = None,
-    cursor: int = Query(default=0, ge=0),
-    maxChars: int = Query(
-        default=_settings.fulltext_default_max_chars,
-        ge=1000,
-        le=_settings.fulltext_max_chars_hard_limit,
-    ),
-    preferSource: str = Query(default="auto", pattern="^(auto|web|cache)$"),
-) -> FulltextResponse:
-    return await bridge.get_item_fulltext(
-        item_key=itemKey,
-        attachment_key=attachmentKey,
-        cursor=cursor,
-        max_chars=maxChars,
-        prefer_source=preferSource,
     )
 
 

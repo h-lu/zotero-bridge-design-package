@@ -242,11 +242,6 @@ class LocalSearchIndex:
                 str(record.get("noteText") or ""),
                 normalized_query,
             )
-        if field == "fulltext":
-            return LocalSearchIndex._exact_or_token_snippet(
-                str(record.get("fulltextText") or ""),
-                normalized_query,
-            )
         return None
 
     @staticmethod

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
@@ -38,8 +39,16 @@ class Creator(StrictModel):
     creatorType: str | None = None
 
 
-class AttachmentSummary(StrictModel):
+class CreatorInput(StrictModel):
+    firstName: str | None = None
+    lastName: str | None = None
+    name: str | None = None
+    creatorType: str = "author"
+
+
+class AttachmentRecord(StrictModel):
     attachmentKey: str
+    parentItemKey: str | None = None
     title: str
     contentType: str
     filename: str | None = None
@@ -47,7 +56,10 @@ class AttachmentSummary(StrictModel):
     md5: str | None = None
     mtime: str | None = None
     isPdf: bool
-    hasFulltext: bool
+    downloadable: bool
+
+
+AttachmentSummary = AttachmentRecord
 
 
 class AINoteSummary(StrictModel):
@@ -57,6 +69,16 @@ class AINoteSummary(StrictModel):
     slot: str
     dateModified: str
     tags: list[str] = Field(default_factory=list)
+    schemaVersion: str | None = None
+
+
+class ProvenanceRecord(StrictModel):
+    attachmentKey: str | None = None
+    page: int | None = None
+    locator: str | None = None
+    cursorStart: int | None = None
+    cursorEnd: int | None = None
+    quote: str | None = None
 
 
 class SearchHint(StrictModel):
@@ -87,7 +109,7 @@ class SearchItem(StrictModel):
     creators: list[Creator]
     tags: list[str] = Field(default_factory=list)
     collectionKeys: list[str] = Field(default_factory=list)
-    attachments: list[AttachmentSummary] = Field(default_factory=list)
+    attachments: list[AttachmentRecord] = Field(default_factory=list)
     aiNotes: list[AINoteSummary] = Field(default_factory=list)
 
 
@@ -308,6 +330,9 @@ class UpsertAINoteRequest(StrictModel):
     sourceAttachmentKey: str | None = None
     sourceCursorStart: int | None = None
     sourceCursorEnd: int | None = None
+    schemaVersion: str | None = None
+    payload: dict[str, Any] | None = None
+    provenance: list[ProvenanceRecord] | None = None
     requestId: str | None = None
 
 
@@ -323,6 +348,7 @@ class UpsertAINoteResponse(StrictModel):
     agent: str
     noteType: str
     slot: str
+    schemaVersion: str | None = None
 
 
 class NoteRecord(StrictModel):
@@ -337,6 +363,9 @@ class NoteRecord(StrictModel):
     agent: str | None = None
     noteType: str | None = None
     slot: str | None = None
+    schemaVersion: str | None = None
+    structuredPayload: dict[str, Any] | None = None
+    provenance: list[ProvenanceRecord] = Field(default_factory=list)
 
 
 class ItemNotesResponse(StrictModel):
@@ -378,60 +407,17 @@ class NoteDeleteResponse(StrictModel):
     itemKey: str | None = None
 
 
-class FulltextSource(StrEnum):
-    ZOTERO_WEB_API = "zotero_web_api"
-    LOCAL_CACHE = "local_cache"
-
-
-class FulltextResponse(StrictModel):
-    itemKey: str
-    attachmentKey: str
-    cursor: int
-    nextCursor: int | None = None
-    done: bool
-    content: str
-    source: FulltextSource
-    indexedPages: int | None = None
-    totalPages: int | None = None
-    attachmentCandidates: list[str] = Field(default_factory=list)
-
-
-class BatchFulltextPreviewRequest(StrictModel):
-    itemKeys: list[str] = Field(min_length=1, max_length=20)
-    maxChars: int = Field(default=3000, ge=1000)
-    preferSource: str = Field(default="auto", pattern="^(auto|web|cache)$")
-
-
-class FulltextPreviewItem(StrictModel):
-    itemKey: str
-    attachmentKey: str | None = None
-    content: str | None = None
-    source: FulltextSource | None = None
-    nextCursor: int | None = None
-    attachmentCandidates: list[str] = Field(default_factory=list)
-    errorCode: str | None = None
-    errorMessage: str | None = None
-
-
-class BatchFulltextPreviewResponse(StrictModel):
-    items: list[FulltextPreviewItem]
-    count: int
-
-
 class ReviewPackRequest(StrictModel):
     itemKeys: list[str] = Field(min_length=1, max_length=20)
-    maxFulltextChars: int = Field(default=3000, ge=1000)
     citationStyle: str | None = None
     citationLocale: str | None = None
     includeRelated: bool = True
     includeNotes: bool = True
-    includeFulltextPreview: bool = True
 
 
 class ReviewPackItem(StrictModel):
     item: SearchItem
     citation: CitationResponse
-    fulltextPreview: FulltextPreviewItem | None = None
     notes: list[NoteRecord] = Field(default_factory=list)
     relatedItems: list[SearchItem] = Field(default_factory=list)
 
@@ -440,6 +426,7 @@ class ReviewPackResponse(StrictModel):
     items: list[ReviewPackItem]
     count: int
     notFoundKeys: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class CitationResponse(StrictModel):
@@ -541,3 +528,90 @@ class MergeDuplicateItemsResponse(StrictModel):
     addedTags: list[str] = Field(default_factory=list)
     addedCollectionKeys: list[str] = Field(default_factory=list)
     deletedItemKeys: list[str] = Field(default_factory=list)
+
+
+class AttachmentListResponse(StrictModel):
+    itemKey: str
+    attachments: list[AttachmentRecord]
+    count: int
+
+
+class AttachmentDetailResponse(StrictModel):
+    attachment: AttachmentRecord
+
+
+class AttachmentHandoffMode(StrEnum):
+    PROXY_DOWNLOAD = "proxy_download"
+
+
+class AttachmentHandoffRequest(StrictModel):
+    mode: AttachmentHandoffMode = AttachmentHandoffMode.PROXY_DOWNLOAD
+    expiresInSeconds: int | None = Field(default=None, ge=60, le=86400)
+    requestId: str | None = None
+
+
+class AttachmentHandoffResponse(StrictModel):
+    attachmentKey: str
+    filename: str | None = None
+    contentType: str
+    mode: AttachmentHandoffMode
+    downloadUrl: str
+    expiresAt: str
+
+
+class ImportStatus(StrEnum):
+    CREATED = "created"
+    EXISTING = "exists"
+    UPDATED = "updated"
+
+
+class ImportMetadataRequest(StrictModel):
+    itemType: str
+    title: str
+    creators: list[CreatorInput] = Field(default_factory=list)
+    abstractNote: str | None = None
+    publicationTitle: str | None = None
+    date: str | None = None
+    doi: str | None = None
+    url: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    collectionKey: str | None = None
+    extra: str | None = None
+    updateIfExists: bool = False
+    requestId: str | None = None
+
+
+class ImportMetadataResponse(StrictModel):
+    status: ImportStatus
+    itemKey: str
+    title: str
+    dedupeStrategy: str
+
+
+class ImportDiscoveryHitRequest(StrictModel):
+    openAlexId: str | None = None
+    title: str
+    doi: str | None = None
+    publicationYear: int | None = None
+    publicationDate: str | None = None
+    workType: str | None = None
+    venue: str | None = None
+    landingPageUrl: str | None = None
+    pdfUrl: str | None = None
+    isOpenAccess: bool | None = None
+    abstract: str | None = None
+    authors: list[DiscoveryAuthor] = Field(default_factory=list)
+    topics: list[DiscoveryTopic] = Field(default_factory=list)
+    attachPdfFromOpenAccessUrl: bool = False
+    collectionKey: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    updateIfExists: bool = False
+    requestId: str | None = None
+
+
+class ImportDiscoveryHitResponse(StrictModel):
+    status: ImportStatus
+    itemKey: str
+    title: str
+    dedupeStrategy: str
+    attachment: UploadPdfResponse | None = None

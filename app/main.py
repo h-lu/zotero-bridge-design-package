@@ -16,6 +16,7 @@ from app.errors import (
     request_validation_error_handler,
     unexpected_error_handler,
 )
+from app.routes.attachments import router as attachments_router
 from app.routes.discovery import router as discovery_router
 from app.routes.health import router as health_router
 from app.routes.items import router as items_router
@@ -24,11 +25,13 @@ from app.routes.notes import router as notes_router
 from app.routes.papers import router as papers_router
 from app.services.bridge_service import BridgeService
 from app.services.doi_resolver import DOIResolver
-from app.services.fulltext import FulltextService
-from app.services.local_fulltext_store import LocalFulltextStore
 from app.services.local_search_index import LocalSearchIndex
 from app.services.note_renderer import NoteRenderer
+from app.services.note_search_cache import NoteSearchCache
 from app.services.zotero_client import ZoteroClient
+from app.services.zotero_scope_resolver import ZoteroScopeResolver
+
+app_settings = get_settings()
 
 
 @asynccontextmanager
@@ -36,10 +39,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     http_client = httpx.AsyncClient()
     zotero_client = ZoteroClient(settings=settings, client=http_client)
-    local_fulltext_store = (
-        LocalFulltextStore(settings.local_fulltext_cache_path)
-        if settings.enable_local_fulltext_cache
-        else None
+    doi_resolver = DOIResolver(http_client)
+    note_renderer = NoteRenderer(settings.default_note_tag_prefix)
+    attachment_tokens: dict[str, Any] = {}
+    note_search_cache = NoteSearchCache(
+        ttl_seconds=settings.note_search_cache_ttl_seconds,
     )
     local_search_index = (
         LocalSearchIndex(settings.local_search_index_path)
@@ -50,16 +54,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings=settings,
         http_client=http_client,
         zotero_client=zotero_client,
-        doi_resolver=DOIResolver(http_client),
-        note_renderer=NoteRenderer(settings.default_note_tag_prefix),
-        fulltext_service=FulltextService(
-            default_max_chars=settings.fulltext_default_max_chars,
-            hard_max_chars=settings.fulltext_max_chars_hard_limit,
-        ),
-        local_fulltext_store=local_fulltext_store,
+        doi_resolver=doi_resolver,
+        note_renderer=note_renderer,
         local_search_index=local_search_index,
+        attachment_tokens=attachment_tokens,
+        note_search_cache=note_search_cache,
     )
     app.state.bridge_service = bridge_service
+    app.state.http_client = http_client
+    app.state.doi_resolver = doi_resolver
+    app.state.note_renderer = note_renderer
+    app.state.attachment_tokens = attachment_tokens
+    app.state.note_search_cache = note_search_cache
+    app.state.zotero_scope_resolver = ZoteroScopeResolver(
+        settings=settings,
+        http_client=http_client,
+    )
     app.state.zotero_key_valid = None
 
     if settings.startup_validate_zotero_key:
@@ -76,15 +86,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await http_client.aclose()
 
 
-app = FastAPI(
-    title="Zotero Bridge API",
-    version="1.0.0",
-    description="REST bridge between ChatGPT/Codex and a Zotero library.",
-    lifespan=lifespan,
-)
+app_kwargs: dict[str, Any] = {
+    "title": "Zotero Bridge API",
+    "version": "2.0.0",
+    "description": "Zotero I/O and workflow layer for ChatGPT/Codex.",
+    "lifespan": lifespan,
+}
+if app_settings.public_base_url:
+    app_kwargs["servers"] = [
+        {
+            "url": app_settings.public_base_url.rstrip("/"),
+            "description": "Public Zotero Bridge endpoint",
+        }
+    ]
+
+app = FastAPI(**app_kwargs)
 app.include_router(health_router)
 app.include_router(papers_router)
 app.include_router(items_router)
+app.include_router(attachments_router)
 app.include_router(library_router)
 app.include_router(discovery_router)
 app.include_router(notes_router)

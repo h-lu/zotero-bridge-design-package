@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "zotero-bridge"
-version = "1.0.0"
+version = "2.0.0"
 description = "Public REST bridge between ChatGPT/Codex and Zotero Web API v3"
 readme = "README_IMPLEMENTATION.md"
 requires-python = ">=3.12"
@@ -15,7 +15,6 @@ dependencies = [
   "markdown-it-py>=3.0.0,<4",
   "pydantic-settings>=2.8.0,<3",
   "pydantic>=2.11.0,<3",
-  "pypdf>=6.7.5",
   "python-multipart>=0.0.20,<1",
   "uvicorn>=0.34.0,<1",
 ]

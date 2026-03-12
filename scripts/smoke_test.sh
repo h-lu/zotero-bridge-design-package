@@ -21,7 +21,7 @@ ITEM_KEY="$(jq -r '.itemKey' /tmp/zbridge_add.json)"
 
 echo
 echo "== search =="
-curl -fsS "${AUTH[@]}"   "${BRIDGE_BASE_URL}/v1/items/search?q=10.1038%2Fnrd842&limit=5&includeFulltext=true" | jq .
+curl -fsS "${AUTH[@]}"   "${BRIDGE_BASE_URL}/v1/items/search?q=10.1038%2Fnrd842&limit=5" | jq .
 
 echo
 echo "== citation =="
