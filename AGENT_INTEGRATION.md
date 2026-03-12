@@ -1,105 +1,170 @@
-# Agent Integration
+# Agent 接入说明
 
-Use these artifacts when connecting ChatGPT, Codex CLI, or another agent to the bridge.
+这份文档用于把 ChatGPT、Codex CLI、Claude Code 或其他 agent 接到 Zotero Bridge。
 
-## Endpoint
+## 接入地址
 
 - base URL: `https://hblu.top:8888`
-- live docs: `https://hblu.top:8888/docs`
-- live OpenAPI JSON: `https://hblu.top:8888/openapi.json`
+- 在线文档: `https://hblu.top:8888/docs`
+- 在线 OpenAPI: `https://hblu.top:8888/openapi.json`
 
-## Auth
+## 认证方式
 
-All normal API routes require:
+所有普通 API 都要求调用方提供自己的 Zotero key：
 
 ```text
-X-Zotero-API-Key: <CALLER_ZOTERO_API_KEY>
+X-Zotero-API-Key: <你的 Zotero API Key>
 ```
 
-The bridge resolves the supplied Zotero key to that caller's personal user library and runs the request against that library.
+bridge 会在每次请求里解析这把 key，并把请求路由到这把 key 对应的 Zotero 用户库。
 
-## OpenAPI Files
+这意味着：
 
-- [`openapi.actions.yaml`](/home/ubuntu/zotero-bridge-design-package/openapi.actions.yaml)
-  Recommended for ChatGPT Actions and other agent tool integrations.
-- [`openapi.full.yaml`](/home/ubuntu/zotero-bridge-design-package/openapi.full.yaml)
-  Full contract for development and debugging.
+- 不同用户可以共用同一个 bridge
+- 每个人只操作自己的 Zotero
+- 不需要额外的 `BRIDGE_API_KEY`
 
-## Recommended Agent Workflow
+## OpenAPI 文件
 
-1. Search or discover papers.
-   - `GET /v1/discovery/search`
+- [openapi.actions.yaml](/home/ubuntu/zotero-bridge-design-package/openapi.actions.yaml)
+  - 推荐给 ChatGPT Actions、agent tool 调用、轻量接入场景
+- [openapi.full.yaml](/home/ubuntu/zotero-bridge-design-package/openapi.full.yaml)
+  - 推荐给开发、调试、全量能力查看
+
+## 推荐工作流
+
+推荐 agent 按下面的顺序工作：
+
+1. 搜索 Zotero 或 discovery
    - `GET /v1/items/search`
    - `GET /v1/items/search-advanced`
-2. Import papers into Zotero.
+   - `GET /v1/discovery/search`
+2. 导入论文
    - `POST /v1/papers/import-discovery-hit`
    - `POST /v1/papers/import-metadata`
    - `POST /v1/papers/add-by-doi`
-3. Deliver attachments to the agent.
+3. 列出并交付附件
    - `GET /v1/items/{itemKey}/attachments`
    - `POST /v1/attachments/{attachmentKey}/handoff`
    - `GET /v1/attachments/download/{token}`
-4. Let the agent read and analyze the PDF locally.
-   - Do not call bridge-side fulltext endpoints for reading. They no longer exist.
-5. Write results back as structured notes.
+4. 让 agent 自己下载并阅读 PDF
+5. 把分析结果写回 structured notes
    - `POST /v1/items/{itemKey}/notes/upsert-ai-note`
    - `GET /v1/notes/{noteKey}`
-6. Pull a workspace packet for downstream synthesis.
+6. 需要打包时使用：
    - `POST /v1/items/review-pack`
 
-## Important Constraints
+## 重要约束
 
-- The bridge is a Zotero I/O and workflow layer, not a PDF reading engine.
-- `GET /v1/items/{itemKey}/fulltext` and `POST /v1/items/fulltext/batch-preview` have been removed.
-- `review-pack` no longer returns `fulltextPreview`.
-- For PDF analysis, use attachment handoff and read the file in ChatGPT/Codex CLI.
+- bridge 是 Zotero I/O 和 workflow layer，不是 PDF reading engine
+- fulltext 接口已经删除，不要再使用
+- `review-pack` 不再返回 `fulltextPreview`
+- 正确做法是：
+  - 先用 attachment handoff 拿到 PDF
+  - 再由 ChatGPT / Codex CLI / Claude Code 自己读取 PDF
+  - 最后把结果写回 Zotero
 
-## ChatGPT Attachment Flow
+## ChatGPT 接入建议
 
-For ChatGPT-style usage, the intended sequence is:
+适合方式：
 
-1. call `POST /v1/attachments/{attachmentKey}/handoff`
-2. read `downloadUrl` from the JSON response
-3. call `GET /v1/attachments/download/{token}`
+- 导入 `https://hblu.top:8888/openapi.json`
+- 或使用 [openapi.actions.yaml](/home/ubuntu/zotero-bridge-design-package/openapi.actions.yaml)
 
-`download/{token}` is tokenized and does not require `X-Zotero-API-Key`. The token itself is the capability.
+请求头配置：
 
-## Minimal Curl Examples
+```text
+X-Zotero-API-Key: <你的 Zotero API Key>
+```
 
-List items:
+附件读取链路：
+
+1. `POST /v1/attachments/{attachmentKey}/handoff`
+2. 从响应里取 `downloadUrl`
+3. `GET /v1/attachments/download/{token}`
+
+注意：
+
+- `download/{token}` 本身是 capability URL
+- 这一步不需要再传 `X-Zotero-API-Key`
+
+## Codex CLI 接入建议
+
+建议在终端里先设环境变量：
 
 ```bash
-curl -H "X-Zotero-API-Key: $CALLER_ZOTERO_API_KEY" \
+export BRIDGE_BASE_URL="https://hblu.top:8888"
+export ZOTERO_API_KEY="你的 Zotero API Key"
+```
+
+然后在 Codex 中明确使用 `zotero-bridge`：
+
+```text
+Use zotero-bridge to search papers, import them into Zotero, download the PDFs, analyze them locally, and write structured notes back.
+```
+
+如果你安装了 repo 里的 skill，可配合使用：
+
+- [skills/zotero-bridge/SKILL.md](/home/ubuntu/zotero-bridge-design-package/skills/zotero-bridge/SKILL.md)
+
+## Claude Code 接入建议
+
+Claude Code 更适合直接调用 HTTP API 或 `curl`。
+
+建议环境变量：
+
+```bash
+export BRIDGE_BASE_URL="https://hblu.top:8888"
+export ZOTERO_API_KEY="你的 Zotero API Key"
+```
+
+最小示例：
+
+```bash
+curl -H "X-Zotero-API-Key: $ZOTERO_API_KEY" \
   "$BRIDGE_BASE_URL/v1/items?limit=5"
 ```
 
-Discover papers:
+## 最小 curl 示例
+
+列出条目：
 
 ```bash
-curl -H "X-Zotero-API-Key: $CALLER_ZOTERO_API_KEY" \
+curl -H "X-Zotero-API-Key: $ZOTERO_API_KEY" \
+  "$BRIDGE_BASE_URL/v1/items?limit=5"
+```
+
+搜索条目：
+
+```bash
+curl -H "X-Zotero-API-Key: $ZOTERO_API_KEY" \
+  --get "$BRIDGE_BASE_URL/v1/items/search" \
+  --data-urlencode "q=llm"
+```
+
+搜索外部论文：
+
+```bash
+curl -H "X-Zotero-API-Key: $ZOTERO_API_KEY" \
   --get "$BRIDGE_BASE_URL/v1/discovery/search" \
   --data-urlencode "q=software engineering agents" \
   --data-urlencode "limit=5"
 ```
 
-Import a discovery hit:
+导入 discovery hit：
 
 ```bash
-curl -H "X-Zotero-API-Key: $CALLER_ZOTERO_API_KEY" \
+curl -H "X-Zotero-API-Key: $ZOTERO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"title":"SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering","publicationYear":2024,"authors":[{"name":"John Yang"}]}' \
   "$BRIDGE_BASE_URL/v1/papers/import-discovery-hit"
 ```
 
-Write a structured note:
+写 structured note：
 
 ```bash
-curl -H "X-Zotero-API-Key: $CALLER_ZOTERO_API_KEY" \
+curl -H "X-Zotero-API-Key: $ZOTERO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"agent":"codex-cli","noteType":"paper.summary","slot":"default","bodyMarkdown":"Short summary","schemaVersion":"1.0","payload":{"summary":"Short summary"}}' \
   "$BRIDGE_BASE_URL/v1/items/ITEMKEY/notes/upsert-ai-note"
 ```
-
-## Codex Skill
-
-The repo-local skill lives at [`skills/zotero-bridge/SKILL.md`](/home/ubuntu/zotero-bridge-design-package/skills/zotero-bridge/SKILL.md). It is intended for Codex-style workflows and should be used together with the OpenAPI contract, not instead of it.
