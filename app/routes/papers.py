@@ -4,7 +4,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 
-from app.auth import require_bearer_auth
 from app.config import get_settings
 from app.dependencies import get_bridge_service
 from app.errors import BridgeError
@@ -25,7 +24,6 @@ MULTIPART_READ_CHUNK_SIZE = 1024 * 1024
 router = APIRouter(
     prefix="/v1/papers",
     tags=["Papers"],
-    dependencies=[Depends(require_bearer_auth)],
 )
 BridgeDep = Annotated[BridgeService, Depends(get_bridge_service)]
 FileDep = Annotated[UploadFile, File(...)]

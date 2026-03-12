@@ -11,24 +11,24 @@
 
 ```bash
 export BRIDGE_BASE_URL="https://hblu.top:8888"
-export BRIDGE_API_KEY="..."
+export ZOTERO_API_KEY="..."
 ```
 
 All requests use:
 
 ```text
-Authorization: Bearer $BRIDGE_API_KEY
+X-Zotero-API-Key: $ZOTERO_API_KEY
 ```
 
 ## Sanity Checks
 
 ```bash
-curl -H "Authorization: Bearer $BRIDGE_API_KEY" \
+curl -H "X-Zotero-API-Key: $ZOTERO_API_KEY" \
   "$BRIDGE_BASE_URL/healthz"
 ```
 
 ```bash
-curl -H "Authorization: Bearer $BRIDGE_API_KEY" \
+curl -H "X-Zotero-API-Key: $ZOTERO_API_KEY" \
   "$BRIDGE_BASE_URL/v1/items?limit=1"
 ```
 

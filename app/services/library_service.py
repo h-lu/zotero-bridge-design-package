@@ -18,6 +18,7 @@ from app.models import (
     SearchResponse,
     SearchResultItem,
 )
+from app.services.note_search_cache import CachedNoteSearchRecord
 
 DEFAULT_BATCH_CONCURRENCY = 6
 
@@ -154,16 +155,59 @@ class LibraryService:
             score_map[item_key_value] = bridge._coerce_optional_float(hit.get("score")) or 0.0
             candidate_keys.add(item_key_value)
 
+        if query and bridge._local_search_index is None:
+            upstream_candidate_keys, upstream_hints, upstream_scores = (
+                await self._collect_upstream_query_candidates(
+                    query=query,
+                    item_type=item_type,
+                    collection_key=collection_key,
+                    tag=tag,
+                )
+            )
+            candidate_keys.update(upstream_candidate_keys)
+            for item_key_value, hints in upstream_hints.items():
+                hint_map[item_key_value] = bridge._dedupe_search_hints(
+                    [*hint_map.get(item_key_value, []), *hints]
+                )
+            for item_key_value, score in upstream_scores.items():
+                score_map[item_key_value] = max(score_map.get(item_key_value, 0.0), score)
+
         if query:
             if not candidate_keys:
-                return AdvancedSearchResponse(
-                    items=[],
-                    count=0,
-                    total=0,
-                    start=start,
-                    limit=limit,
-                    nextStart=None,
-                )
+                if bridge._local_search_index is None and "note" in normalized_fields:
+                    scanned_keys, scanned_hints, scanned_scores = (
+                        await self._collect_request_scoped_note_scan_candidates(
+                            query=query_casefold,
+                            item_type=item_type,
+                            collection_key=collection_key,
+                            tag=tag,
+                        )
+                    )
+                    candidate_keys.update(scanned_keys)
+                    for item_key_value, hints in scanned_hints.items():
+                        hint_map[item_key_value] = bridge._dedupe_search_hints(
+                            [*hint_map.get(item_key_value, []), *hints]
+                        )
+                    for item_key_value, score in scanned_scores.items():
+                        score_map[item_key_value] = max(score_map.get(item_key_value, 0.0), score)
+                    if not candidate_keys:
+                        return AdvancedSearchResponse(
+                            items=[],
+                            count=0,
+                            total=0,
+                            start=start,
+                            limit=limit,
+                            nextStart=None,
+                        )
+                else:
+                    return AdvancedSearchResponse(
+                        items=[],
+                        count=0,
+                        total=0,
+                        start=start,
+                        limit=limit,
+                        nextStart=None,
+                    )
             raw_items = await bridge._zotero.get_items_by_keys_raw(sorted(candidate_keys))
         else:
             raw_items = await bridge._list_all_top_level_items_raw(
@@ -172,12 +216,13 @@ class LibraryService:
                 tag=tag,
                 sort="dateModified",
                 direction="desc",
-            )
+        )
         matches: list[SearchResultItem] = []
         for raw_item in raw_items:
+            item_key = str(raw_item.get("key") or "")
             children: list[dict[str, Any]] = []
             if needs_attachments or needs_notes:
-                children = await bridge._zotero.get_children(str(raw_item.get("key")))
+                children = await bridge._zotero.get_children(item_key)
             item = await bridge._normalize_parent_item(
                 raw_item,
                 children=children,
@@ -252,6 +297,163 @@ class LibraryService:
                 total=total,
             ),
         )
+
+    async def _collect_upstream_query_candidates(
+        self,
+        *,
+        query: str,
+        item_type: str | None,
+        collection_key: str | None,
+        tag: str | None,
+    ) -> tuple[set[str], dict[str, list[SearchHint]], dict[str, float]]:
+        bridge = self._bridge
+        candidate_keys: set[str] = set()
+        hint_map: dict[str, list[SearchHint]] = {}
+        score_map: dict[str, float] = {}
+        start = 0
+        page_size = 100
+
+        while True:
+            raw_hits, _ = await bridge._zotero.search_items_page_raw(
+                q=query,
+                start=start,
+                limit=page_size,
+                item_type=item_type,
+                tag=tag,
+                collection_key=collection_key,
+                sort=None,
+                direction=None,
+            )
+            if not raw_hits:
+                break
+
+            for raw_hit in raw_hits:
+                item_key = bridge._parent_item_key_from_raw(raw_hit)
+                if item_key is None:
+                    continue
+                candidate_keys.add(item_key)
+                hints = bridge._raw_hit_search_hints(
+                    item_key=item_key,
+                    raw_hit=raw_hit,
+                    query=query,
+                )
+                if not hints:
+                    continue
+                hint_map[item_key] = bridge._dedupe_search_hints(
+                    [*hint_map.get(item_key, []), *hints]
+                )
+                score_map[item_key] = max(
+                    score_map.get(item_key, 0.0),
+                    bridge._score_search_hints(hint_map[item_key]),
+                )
+
+            start += len(raw_hits)
+            if len(raw_hits) < page_size:
+                break
+
+        return candidate_keys, hint_map, score_map
+
+    async def _collect_request_scoped_note_scan_candidates(
+        self,
+        *,
+        query: str,
+        item_type: str | None,
+        collection_key: str | None,
+        tag: str | None,
+    ) -> tuple[set[str], dict[str, list[SearchHint]], dict[str, float]]:
+        bridge = self._bridge
+        note_records = await self._request_scoped_note_search_records()
+        candidate_keys: set[str] = set()
+        hint_map: dict[str, list[SearchHint]] = {}
+        score_map: dict[str, float] = {}
+
+        for note_record in note_records:
+            snippet = bridge._query_snippet(
+                note_record.visible_text,
+                query,
+            ) or bridge._query_snippet(
+                note_record.structured_text,
+                query,
+            )
+            if snippet is None:
+                continue
+            candidate_keys.add(note_record.item_key)
+            hint_map[note_record.item_key] = bridge._dedupe_search_hints(
+                [
+                    *hint_map.get(note_record.item_key, []),
+                    SearchHint(field=note_record.hint_field, snippet=snippet),
+                ]
+            )
+            score_map[note_record.item_key] = bridge._score_search_hints(
+                hint_map[note_record.item_key]
+            )
+
+        return candidate_keys, hint_map, score_map
+
+    async def _list_all_library_notes_raw(self) -> list[dict[str, Any]]:
+        bridge = self._bridge
+        raw_notes: list[dict[str, Any]] = []
+        start = 0
+        page_size = 100
+
+        while True:
+            page, _ = await bridge._zotero.list_items_page_raw(
+                start=start,
+                limit=page_size,
+                item_type="note",
+                collection_key=None,
+                tag=None,
+                sort="dateModified",
+                direction="desc",
+                top_level=False,
+            )
+            if not page:
+                break
+            raw_notes.extend(page)
+            start += len(page)
+            if len(page) < page_size:
+                break
+
+        return raw_notes
+
+    async def _request_scoped_note_search_records(self) -> list[CachedNoteSearchRecord]:
+        bridge = self._bridge
+        cache = bridge._note_search_cache
+        if cache is None:
+            return await self._build_request_scoped_note_search_records()
+        return await cache.get_or_build(
+            scope=bridge._note_search_scope(),
+            builder=self._build_request_scoped_note_search_records,
+        )
+
+    async def _build_request_scoped_note_search_records(self) -> list[CachedNoteSearchRecord]:
+        bridge = self._bridge
+        raw_notes = await self._list_all_library_notes_raw()
+        records: list[CachedNoteSearchRecord] = []
+        for raw_note in raw_notes:
+            item_key = bridge._parent_item_key_from_raw(raw_note)
+            if item_key is None:
+                continue
+            note_html = str(raw_note.get("data", {}).get("note") or "")
+            parsed_note = bridge._note_renderer.parse(note_html)
+            visible_text = bridge._normalize_search_text(
+                bridge._note_renderer.to_plain_text(parsed_note.human_html)
+            ) or ""
+            structured_text = bridge._normalize_search_text(
+                bridge._note_renderer.structured_payload_text(parsed_note.payload)
+            ) or ""
+            if not visible_text and not structured_text:
+                continue
+            records.append(
+                CachedNoteSearchRecord(
+                    note_key=str(raw_note.get("key") or ""),
+                    item_key=item_key,
+                    hint_field=bridge._note_search_hint_field(raw_note),
+                    visible_text=visible_text,
+                    structured_text=structured_text,
+                )
+            )
+        return records
 
     async def build_review_pack(self, payload: ReviewPackRequest) -> ReviewPackResponse:
         bridge = self._bridge

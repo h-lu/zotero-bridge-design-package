@@ -10,13 +10,13 @@ Use these artifacts when connecting ChatGPT, Codex CLI, or another agent to the 
 
 ## Auth
 
-All routes require:
+All normal API routes require:
 
 ```text
-Authorization: Bearer <BRIDGE_API_KEY>
+X-Zotero-API-Key: <CALLER_ZOTERO_API_KEY>
 ```
 
-The bridge never exposes the underlying Zotero API key. Agents authenticate only with the bridge bearer token.
+The bridge resolves the supplied Zotero key to that caller's personal user library and runs the request against that library.
 
 ## OpenAPI Files
 
@@ -62,21 +62,21 @@ For ChatGPT-style usage, the intended sequence is:
 2. read `downloadUrl` from the JSON response
 3. call `GET /v1/attachments/download/{token}`
 
-`download/{token}` is tokenized and does not require the bridge bearer token. The token itself is the capability.
+`download/{token}` is tokenized and does not require `X-Zotero-API-Key`. The token itself is the capability.
 
 ## Minimal Curl Examples
 
 List items:
 
 ```bash
-curl -H "Authorization: Bearer $BRIDGE_API_KEY" \
+curl -H "X-Zotero-API-Key: $CALLER_ZOTERO_API_KEY" \
   "$BRIDGE_BASE_URL/v1/items?limit=5"
 ```
 
 Discover papers:
 
 ```bash
-curl -H "Authorization: Bearer $BRIDGE_API_KEY" \
+curl -H "X-Zotero-API-Key: $CALLER_ZOTERO_API_KEY" \
   --get "$BRIDGE_BASE_URL/v1/discovery/search" \
   --data-urlencode "q=software engineering agents" \
   --data-urlencode "limit=5"
@@ -85,7 +85,7 @@ curl -H "Authorization: Bearer $BRIDGE_API_KEY" \
 Import a discovery hit:
 
 ```bash
-curl -H "Authorization: Bearer $BRIDGE_API_KEY" \
+curl -H "X-Zotero-API-Key: $CALLER_ZOTERO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"title":"SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering","publicationYear":2024,"authors":[{"name":"John Yang"}]}' \
   "$BRIDGE_BASE_URL/v1/papers/import-discovery-hit"
@@ -94,7 +94,7 @@ curl -H "Authorization: Bearer $BRIDGE_API_KEY" \
 Write a structured note:
 
 ```bash
-curl -H "Authorization: Bearer $BRIDGE_API_KEY" \
+curl -H "X-Zotero-API-Key: $CALLER_ZOTERO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"agent":"codex-cli","noteType":"paper.summary","slot":"default","bodyMarkdown":"Short summary","schemaVersion":"1.0","payload":{"summary":"Short summary"}}' \
   "$BRIDGE_BASE_URL/v1/items/ITEMKEY/notes/upsert-ai-note"

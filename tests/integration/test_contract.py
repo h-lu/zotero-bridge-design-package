@@ -13,6 +13,15 @@ def test_generated_openapi_matches_full_contract(test_env: None) -> None:
 
     assert "servers" not in generated
     assert "servers" not in full_contract
+    assert "security" not in generated["paths"]["/v1/items"]["get"]
+    assert any(
+        parameter["name"] == "X-Zotero-API-Key"
+        for parameter in generated["paths"]["/v1/items"]["get"]["parameters"]
+    )
+    assert any(
+        parameter["name"] == "X-Zotero-API-Key" and parameter["required"] is True
+        for parameter in generated["paths"]["/v1/items"]["get"]["parameters"]
+    )
     assert set(generated["paths"]) == set(full_contract["paths"])
     assert "/v1/items/{itemKey}/fulltext" not in generated["paths"]
     assert "/v1/items/fulltext/batch-preview" not in generated["paths"]
@@ -29,6 +38,15 @@ def test_actions_openapi_is_parseable_and_subset() -> None:
     actions_contract = yaml.safe_load(Path("openapi.actions.yaml").read_text(encoding="utf-8"))
 
     assert "servers" not in actions_contract
+    assert "security" not in actions_contract["paths"]["/v1/items"]["get"]
+    assert any(
+        parameter["name"] == "X-Zotero-API-Key"
+        for parameter in actions_contract["paths"]["/v1/items"]["get"]["parameters"]
+    )
+    assert any(
+        parameter["name"] == "X-Zotero-API-Key" and parameter["required"] is True
+        for parameter in actions_contract["paths"]["/v1/items"]["get"]["parameters"]
+    )
     assert set(actions_contract["paths"]).issubset(set(full_contract["paths"]))
     assert "/v1/papers/upload-pdf-multipart" not in actions_contract["paths"]
     assert "/v1/attachments/download/{token}" in actions_contract["paths"]

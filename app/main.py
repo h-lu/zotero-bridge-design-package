@@ -27,7 +27,9 @@ from app.services.bridge_service import BridgeService
 from app.services.doi_resolver import DOIResolver
 from app.services.local_search_index import LocalSearchIndex
 from app.services.note_renderer import NoteRenderer
+from app.services.note_search_cache import NoteSearchCache
 from app.services.zotero_client import ZoteroClient
+from app.services.zotero_scope_resolver import ZoteroScopeResolver
 
 app_settings = get_settings()
 
@@ -37,6 +39,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     http_client = httpx.AsyncClient()
     zotero_client = ZoteroClient(settings=settings, client=http_client)
+    doi_resolver = DOIResolver(http_client)
+    note_renderer = NoteRenderer(settings.default_note_tag_prefix)
+    attachment_tokens: dict[str, Any] = {}
+    note_search_cache = NoteSearchCache(
+        ttl_seconds=settings.note_search_cache_ttl_seconds,
+    )
     local_search_index = (
         LocalSearchIndex(settings.local_search_index_path)
         if settings.enable_local_search_index
@@ -46,11 +54,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings=settings,
         http_client=http_client,
         zotero_client=zotero_client,
-        doi_resolver=DOIResolver(http_client),
-        note_renderer=NoteRenderer(settings.default_note_tag_prefix),
+        doi_resolver=doi_resolver,
+        note_renderer=note_renderer,
         local_search_index=local_search_index,
+        attachment_tokens=attachment_tokens,
+        note_search_cache=note_search_cache,
     )
     app.state.bridge_service = bridge_service
+    app.state.http_client = http_client
+    app.state.doi_resolver = doi_resolver
+    app.state.note_renderer = note_renderer
+    app.state.attachment_tokens = attachment_tokens
+    app.state.note_search_cache = note_search_cache
+    app.state.zotero_scope_resolver = ZoteroScopeResolver(
+        settings=settings,
+        http_client=http_client,
+    )
     app.state.zotero_key_valid = None
 
     if settings.startup_validate_zotero_key:

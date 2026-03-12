@@ -23,6 +23,13 @@ class NotesService:
     def __init__(self, bridge: Any) -> None:
         self._bridge = bridge
 
+    def _note_schema_version(self, raw_note: dict[str, Any]) -> str | None:
+        note_html = str(raw_note.get("data", {}).get("note") or "")
+        return self._bridge._note_renderer.parse(note_html).schema_version
+
+    def _rendered_schema_version(self, rendered_html: str) -> str | None:
+        return self._bridge._note_renderer.parse(rendered_html).schema_version
+
     async def list_item_notes(self, item_key: str) -> ItemNotesResponse:
         bridge = self._bridge
         await bridge._zotero.get_item(item_key)
@@ -107,6 +114,7 @@ class NotesService:
                     )
             raise
         await bridge._refresh_local_search_index_item(item_key)
+        bridge._invalidate_note_search_cache()
         return NoteWriteResponse(
             status=NoteWriteStatus.CREATED,
             noteKey=note_key,
@@ -181,6 +189,7 @@ class NotesService:
             parent_item_key = bridge._clean_optional_str(data.get("parentItem"))
             if parent_item_key:
                 await bridge._refresh_local_search_index_item(parent_item_key)
+            bridge._invalidate_note_search_cache()
             return NoteWriteResponse(
                 status=NoteWriteStatus.UPDATED,
                 noteKey=note_key,
@@ -200,6 +209,7 @@ class NotesService:
         parent_item_key = bridge._clean_optional_str(data.get("parentItem"))
         if parent_item_key:
             await bridge._refresh_local_search_index_item(parent_item_key)
+        bridge._invalidate_note_search_cache()
         return NoteDeleteResponse(
             status=NoteDeleteStatus.DELETED,
             noteKey=note_key,
@@ -247,7 +257,7 @@ class NotesService:
                     agent=payload.agent,
                     noteType=payload.noteType,
                     slot=payload.slot,
-                    schemaVersion=payload.schemaVersion,
+                    schemaVersion=self._note_schema_version(replayed_note),
                 )
 
             existing_html = None
@@ -275,7 +285,7 @@ class NotesService:
                             agent=payload.agent,
                             noteType=payload.noteType,
                             slot=payload.slot,
-                            schemaVersion=payload.schemaVersion,
+                            schemaVersion=self._note_schema_version(existing_note),
                         )
                     if replay_state == "conflict":
                         bridge._raise_request_id_conflict()
@@ -345,10 +355,12 @@ class NotesService:
                                 agent=payload.agent,
                                 noteType=payload.noteType,
                                 slot=payload.slot,
-                                schemaVersion=payload.schemaVersion,
+                                schemaVersion=self._note_schema_version(replayed_note),
                             )
                     raise
+                effective_schema_version = self._rendered_schema_version(rendered_html)
                 await bridge._refresh_local_search_index_item(item_key)
+                bridge._invalidate_note_search_cache()
                 return UpsertAINoteResponse(
                     status=UpsertAINoteStatus.CREATED,
                     noteKey=note_key,
@@ -356,7 +368,7 @@ class NotesService:
                     agent=payload.agent,
                     noteType=payload.noteType,
                     slot=payload.slot,
-                    schemaVersion=payload.schemaVersion,
+                    schemaVersion=effective_schema_version,
                 )
 
             note_key = str(existing_note.get("key"))
@@ -373,7 +385,9 @@ class NotesService:
                 if exc.code == "WRITE_CONFLICT":
                     continue
                 raise
+            effective_schema_version = self._rendered_schema_version(rendered_html)
             await bridge._refresh_local_search_index_item(item_key)
+            bridge._invalidate_note_search_cache()
             return UpsertAINoteResponse(
                 status=UpsertAINoteStatus.UPDATED,
                 noteKey=note_key,
@@ -381,7 +395,7 @@ class NotesService:
                 agent=payload.agent,
                 noteType=payload.noteType,
                 slot=payload.slot,
-                schemaVersion=payload.schemaVersion,
+                schemaVersion=effective_schema_version,
             )
         bridge._raise_item_update_conflict()
         raise AssertionError("unreachable")

@@ -4,7 +4,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.auth import require_bearer_auth
 from app.dependencies import get_bridge_service
 from app.models import (
     NoteDeleteResponse,
@@ -17,7 +16,6 @@ from app.services.bridge_service import BridgeService
 router = APIRouter(
     prefix="/v1/notes",
     tags=["Notes"],
-    dependencies=[Depends(require_bearer_auth)],
 )
 BridgeDep = Annotated[BridgeService, Depends(get_bridge_service)]
 

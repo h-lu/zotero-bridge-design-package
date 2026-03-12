@@ -14,13 +14,15 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    bridge_api_key: str = Field(..., alias="BRIDGE_API_KEY")
-
     app_env: str = Field("production", alias="APP_ENV")
     app_host: str = Field("0.0.0.0", alias="APP_HOST")
     app_port: int = Field(8080, alias="APP_PORT")
     log_level: str = Field("INFO", alias="LOG_LEVEL")
     public_base_url: str | None = Field(None, alias="PUBLIC_BASE_URL")
+    enable_request_scoped_zotero_key: bool = Field(
+        True,
+        alias="ENABLE_REQUEST_SCOPED_ZOTERO_KEY",
+    )
 
     zotero_api_base: str = Field("https://api.zotero.org", alias="ZOTERO_API_BASE")
     zotero_api_version: int = Field(3, alias="ZOTERO_API_VERSION")
@@ -45,6 +47,10 @@ class Settings(BaseSettings):
     local_search_index_refresh_seconds: int = Field(
         300,
         alias="LOCAL_SEARCH_INDEX_REFRESH_SECONDS",
+    )
+    note_search_cache_ttl_seconds: int = Field(
+        120,
+        alias="NOTE_SEARCH_CACHE_TTL_SECONDS",
     )
 
     max_action_request_chars: int = Field(100000, alias="MAX_ACTION_REQUEST_CHARS")

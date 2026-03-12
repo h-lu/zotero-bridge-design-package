@@ -84,6 +84,7 @@ from app.services.ingest_service import IngestService
 from app.services.library_service import LibraryService
 from app.services.local_search_index import LocalSearchIndex
 from app.services.note_renderer import NoteRenderer
+from app.services.note_search_cache import NoteSearchCache, NoteSearchScope
 from app.services.notes_service import NotesService
 from app.services.remote_fetch_guard import RemoteFetchGuard
 from app.services.zotero_client import ZoteroClient
@@ -104,6 +105,8 @@ class BridgeService:
         doi_resolver: DOIResolver,
         note_renderer: NoteRenderer,
         local_search_index: LocalSearchIndex | None,
+        attachment_tokens: dict[str, Any] | None = None,
+        note_search_cache: NoteSearchCache | None = None,
     ) -> None:
         self._settings = settings
         self._http_client = http_client
@@ -111,11 +114,14 @@ class BridgeService:
         self._doi_resolver = doi_resolver
         self._note_renderer = note_renderer
         self._local_search_index = local_search_index
+        self._note_search_cache = note_search_cache
         self._local_search_index_lock = asyncio.Lock()
         self._local_search_index_sync_task: asyncio.Task[None] | None = None
         self._attachment_service = AttachmentService(
             settings=settings,
             zotero_client=zotero_client,
+            http_client=http_client,
+            tokens=attachment_tokens,
         )
         self._library_service = LibraryService(self)
         self._ingest_service = IngestService(self)
@@ -2668,13 +2674,19 @@ class BridgeService:
             data = child.get("data", {})
             if data.get("itemType") != "note":
                 continue
+            note_html = str(data.get("note") or "")
+            parsed_note = self._note_renderer.parse(note_html)
             note_text = self._normalize_search_text(
-                self._note_renderer.to_plain_text(str(data.get("note") or ""))
+                self._note_renderer.to_plain_text(note_html)
+            ) or ""
+            payload_text = self._normalize_search_text(
+                self._note_renderer.structured_payload_text(parsed_note.payload)
             ) or ""
             self._append_search_hint(
                 hints,
                 field=self._note_search_hint_field(child),
-                snippet=self._query_snippet(note_text, query),
+                snippet=self._query_snippet(note_text, query)
+                or self._query_snippet(payload_text, query),
             )
         return hints
 
@@ -2730,7 +2742,8 @@ class BridgeService:
                     md5=self._clean_optional_str(data.get("md5")),
                     mtime=self._clean_optional_str(data.get("mtime")),
                     isPdf=is_pdf,
-                    downloadable=link_mode not in {"linked_url"} and bool(content_type or filename),
+                    downloadable=link_mode not in {"linked_url", "linked_file"}
+                    and bool(content_type or filename),
                 )
             )
         return attachments
@@ -2823,14 +2836,35 @@ class BridgeService:
         records = await self._all_local_search_index_records(require_ready=require_ready)
         doi_matches: dict[str, str] = {}
         title_matches: dict[str, str] = {}
-        for record in records:
-            item_key = str(record.get("itemKey") or "").strip()
+        if records:
+            for record in records:
+                item_key = str(record.get("itemKey") or "").strip()
+                if not item_key:
+                    continue
+                normalized_doi = self._normalize_doi_safe(record.get("DOI"))
+                if normalized_doi and normalized_doi not in doi_matches:
+                    doi_matches[normalized_doi] = item_key
+                normalized_title = self._normalize_title_key(str(record.get("title") or ""))
+                if normalized_title and normalized_title not in title_matches:
+                    title_matches[normalized_title] = item_key
+            return doi_matches, title_matches
+
+        raw_items = await self._list_all_top_level_items_raw(
+            item_type=None,
+            collection_key=None,
+            tag=None,
+            sort="dateModified",
+            direction="desc",
+        )
+        for raw_item in raw_items:
+            item_key = str(raw_item.get("key") or "").strip()
             if not item_key:
                 continue
-            normalized_doi = self._normalize_doi_safe(record.get("DOI"))
+            data = raw_item.get("data", {})
+            normalized_doi = self._normalize_doi_safe(data.get("DOI"))
             if normalized_doi and normalized_doi not in doi_matches:
                 doi_matches[normalized_doi] = item_key
-            normalized_title = self._normalize_title_key(str(record.get("title") or ""))
+            normalized_title = self._normalize_title_key(str(data.get("title") or ""))
             if normalized_title and normalized_title not in title_matches:
                 title_matches[normalized_title] = item_key
         return doi_matches, title_matches
@@ -2973,6 +3007,18 @@ class BridgeService:
             if normalized_values:
                 relation_map[relation_name] = normalized_values
         return relation_map
+
+    def _note_search_scope(self) -> NoteSearchScope:
+        return NoteSearchScope(
+            api_base=self._settings.zotero_api_base.rstrip("/"),
+            library_type=self._settings.zotero_library_type,
+            library_id=self._settings.zotero_library_id,
+        )
+
+    def _invalidate_note_search_cache(self) -> None:
+        if self._note_search_cache is None:
+            return
+        self._note_search_cache.invalidate(scope=self._note_search_scope())
 
     @staticmethod
     def _merge_relation_maps(

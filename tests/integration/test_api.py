@@ -8,7 +8,7 @@ import httpx
 import pytest
 import respx
 
-from app.services.note_renderer import STRUCTURED_BLOCK_MARKER
+from app.services.note_renderer import STRUCTURED_BLOCK_MARKER, NoteRenderer
 
 PDF_BYTES = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"
 
@@ -83,6 +83,39 @@ async def test_healthz(async_client: httpx.AsyncClient, auth_headers: dict[str, 
 
     assert response.status_code == 200
     assert response.json()["version"] == "2.0.0"
+
+
+@pytest.mark.asyncio
+async def test_healthz_rejects_missing_zotero_api_key(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.get("/healthz")
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "MISSING_ZOTERO_API_KEY"
+
+
+@pytest.mark.asyncio
+async def test_healthz_supports_request_scoped_zotero_key(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == "/keys/scoped-key":
+            return httpx.Response(200, json={"userID": 999999})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/healthz",
+        headers={**auth_headers, "X-Zotero-API-Key": "scoped-key"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["config"]["libraryType"] == "user"
+    assert response.json()["config"]["libraryId"] == "999999"
 
 
 @pytest.mark.asyncio
@@ -240,6 +273,80 @@ async def test_attachment_list_detail_handoff_and_download(
 
 
 @pytest.mark.asyncio
+async def test_attachment_handoff_uses_public_base_url_when_configured(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    from app.main import app
+
+    original_public_base_url = app.state.bridge_service._settings.public_base_url
+    app.state.bridge_service._settings.public_base_url = "https://public.example.com/bridge"
+    attachment = attachment_item()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == "/users/123456/items/ATTACH01":
+            return httpx.Response(200, json=attachment)
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    try:
+        response = await async_client.post(
+            "/v1/attachments/ATTACH01/handoff",
+            headers=auth_headers,
+            json={"mode": "proxy_download"},
+        )
+    finally:
+        app.state.bridge_service._settings.public_base_url = original_public_base_url
+
+    assert response.status_code == 200
+    assert response.json()["downloadUrl"].startswith(
+        "https://public.example.com/bridge/v1/attachments/download/"
+    )
+
+
+@pytest.mark.asyncio
+async def test_attachment_handoff_download_uses_request_scoped_zotero_key(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    attachment = attachment_item(key="ATTACH09", parent="ITEM9000", filename="scoped.pdf")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == "/keys/scoped-key":
+            return httpx.Response(200, json={"userID": 999999})
+        if request.method == "GET" and request.url.path == "/users/999999/items/ATTACH09":
+            return httpx.Response(200, json=attachment)
+        if request.method == "GET" and request.url.path == "/users/999999/items/ATTACH09/file":
+            return httpx.Response(
+                200,
+                content=PDF_BYTES,
+                headers={"Content-Type": "application/pdf"},
+            )
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    handoff_response = await async_client.post(
+        "/v1/attachments/ATTACH09/handoff",
+        headers={**auth_headers, "X-Zotero-API-Key": "scoped-key"},
+        json={"mode": "proxy_download"},
+    )
+
+    assert handoff_response.status_code == 200
+    token = handoff_response.json()["downloadUrl"].rsplit("/", 1)[-1]
+
+    download_response = await async_client.get(f"/v1/attachments/download/{token}")
+
+    assert download_response.status_code == 200
+    assert download_response.headers["content-type"] == "application/pdf"
+    assert "filename*=UTF-8''scoped.pdf" in download_response.headers["content-disposition"]
+    assert download_response.content == PDF_BYTES
+
+
+@pytest.mark.asyncio
 async def test_attachment_download_rejects_invalid_and_expired_tokens(
     async_client: httpx.AsyncClient,
     auth_headers: dict[str, str],
@@ -268,6 +375,9 @@ async def test_attachment_download_rejects_invalid_and_expired_tokens(
         app.state.bridge_service._attachment_service._tokens[token].__class__(
             attachment_key="ATTACH01",
             expires_at=datetime.now(UTC) - timedelta(seconds=1),
+            zotero_api_key="zotero-test-key",
+            zotero_library_type="user",
+            zotero_library_id="123456",
         )
     )
 
@@ -276,6 +386,327 @@ async def test_attachment_download_rejects_invalid_and_expired_tokens(
 
     assert expired_response.status_code == 410
     assert invalid_response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_advanced_search_falls_back_without_local_index_for_request_scoped_key(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    scoped_item = parent_item(key="ITEM9000", title="Scoped Library Paper")
+    seen_search = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal seen_search
+        if request.method == "GET" and request.url.path == "/keys/scoped-key":
+            return httpx.Response(200, json={"userID": 999999})
+        if request.method == "GET" and request.url.path == "/users/999999/items":
+            if request.url.params.get("q") == "scoped":
+                seen_search = True
+                return httpx.Response(
+                    200,
+                    json=[scoped_item],
+                    headers={"Total-Results": "1"},
+                )
+            if request.url.params.get("itemKey") == "ITEM9000":
+                return httpx.Response(200, json=[scoped_item])
+        if request.method == "GET" and request.url.path == "/users/999999/items/top":
+            raise AssertionError("request-scoped query search should not scan /items/top")
+        if request.method == "GET" and request.url.path == "/users/999999/items/ITEM9000/children":
+            return httpx.Response(
+                200,
+                json=[],
+            )
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/search-advanced",
+        headers={**auth_headers, "X-Zotero-API-Key": "scoped-key"},
+        params={
+            "q": "scoped",
+            "fields": "title",
+            "includeAttachments": "false",
+            "includeNotes": "false",
+        },
+    )
+
+    assert response.status_code == 200
+    assert seen_search is True
+    assert response.json()["count"] == 1
+    assert response.json()["items"][0]["itemKey"] == "ITEM9000"
+
+
+@pytest.mark.asyncio
+async def test_request_scoped_discovery_search_marks_existing_and_filters_duplicates(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    scoped_item = parent_item(
+        key="ITEM9010",
+        title="Scoped Existing Paper",
+        doi="10.1000/existing",
+    )
+    openalex_payload = {
+        "meta": {"count": 1},
+        "results": [
+            {
+                "id": "https://openalex.org/W123",
+                "doi": "https://doi.org/10.1000/existing",
+                "display_name": "Scoped Existing Paper",
+                "publication_year": 2025,
+                "publication_date": "2025-01-01",
+                "type": "article",
+                "cited_by_count": 7,
+                "authorships": [],
+                "primary_location": {"source": {"display_name": "Test Venue"}},
+                "open_access": {"is_oa": True},
+                "abstract_inverted_index": None,
+                "primary_topic": {},
+            }
+        ],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == "/keys/scoped-key":
+            return httpx.Response(200, json={"userID": 999999})
+        if request.method == "GET" and request.url.path == "/users/999999/items/top":
+            return httpx.Response(200, json=[scoped_item], headers={"Total-Results": "1"})
+        if request.method == "GET" and request.url.path == "/works":
+            return httpx.Response(200, json=openalex_payload)
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    marked_response = await async_client.get(
+        "/v1/discovery/search",
+        headers={**auth_headers, "X-Zotero-API-Key": "scoped-key"},
+        params={"q": "existing", "resolveInLibrary": "true", "excludeExisting": "false"},
+    )
+    filtered_response = await async_client.get(
+        "/v1/discovery/search",
+        headers={**auth_headers, "X-Zotero-API-Key": "scoped-key"},
+        params={"q": "existing", "resolveInLibrary": "true", "excludeExisting": "true"},
+    )
+
+    assert marked_response.status_code == 200
+    assert marked_response.json()["count"] == 1
+    assert marked_response.json()["items"][0]["alreadyInLibrary"] is True
+    assert marked_response.json()["items"][0]["libraryItemKey"] == "ITEM9010"
+    assert marked_response.json()["items"][0]["libraryMatchStrategy"] == "doi"
+
+    assert filtered_response.status_code == 200
+    assert filtered_response.json()["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_request_scoped_note_search_uses_upstream_query_candidates(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    scoped_item = parent_item(key="ITEM9000", title="Scoped Library Paper")
+    scoped_note = note_item(
+        key="NOTE9000",
+        parent="ITEM9000",
+        note_html="<p>quick_local_pdf_spot_check note body</p>",
+        tags=[
+            "zbridge",
+            "zbridge:agent:codex",
+            "zbridge:type:paper.summary",
+            "zbridge:slot:default",
+        ],
+    )
+    calls = {"search": 0, "children": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == "/keys/scoped-key":
+            return httpx.Response(200, json={"userID": 999999})
+        if request.method == "GET" and request.url.path == "/users/999999/items":
+            if request.url.params.get("q") == "quick_local_pdf_spot_check":
+                calls["search"] += 1
+                return httpx.Response(
+                    200,
+                    json=[scoped_note],
+                    headers={"Total-Results": "1"},
+                )
+            if request.url.params.get("itemKey") == "ITEM9000":
+                return httpx.Response(200, json=[scoped_item])
+        if request.method == "GET" and request.url.path == "/users/999999/items/ITEM9000/children":
+            calls["children"] += 1
+            return httpx.Response(200, json=[scoped_note])
+        if request.method == "GET" and request.url.path == "/users/999999/items/top":
+            raise AssertionError("request-scoped note search should not scan /items/top")
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/search-advanced",
+        headers={**auth_headers, "X-Zotero-API-Key": "scoped-key"},
+        params={
+            "q": "quick_local_pdf_spot_check",
+            "fields": "note",
+            "sort": "relevance",
+            "includeAttachments": "false",
+            "includeNotes": "false",
+        },
+    )
+
+    assert response.status_code == 200
+    assert calls == {"search": 1, "children": 1}
+    assert response.json()["count"] == 1
+    assert response.json()["items"][0]["itemKey"] == "ITEM9000"
+    assert response.json()["items"][0]["searchHints"][0]["field"] == "aiNote:paper.summary"
+
+
+@pytest.mark.asyncio
+async def test_request_scoped_note_search_falls_back_to_structured_payload_scan(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    scoped_item = parent_item(key="ITEM9001", title="Scoped Payload Paper")
+    note_html = NoteRenderer("zbridge").render(
+        title="Quick Read",
+        body_markdown="Human-readable body without the lookup token.",
+        agent="codex",
+        note_type="paper.summary",
+        model=None,
+        source_attachment_key=None,
+        source_cursor_start=None,
+        source_cursor_end=None,
+        schema_version="1.0",
+        payload={"readingMode": "quick_local_pdf_spot_check"},
+        provenance=[],
+        mode="replace",
+    )
+    scoped_note = note_item(
+        key="NOTE9001",
+        parent="ITEM9001",
+        note_html=note_html,
+        tags=[
+            "zbridge",
+            "zbridge:agent:codex",
+            "zbridge:type:paper.summary",
+            "zbridge:slot:default",
+        ],
+    )
+    calls = {"search": 0, "notes": 0, "children": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == "/keys/scoped-key":
+            return httpx.Response(200, json={"userID": 999999})
+        if request.method == "GET" and request.url.path == "/users/999999/items":
+            if request.url.params.get("q") == "quick_local_pdf_spot_check":
+                calls["search"] += 1
+                return httpx.Response(200, json=[], headers={"Total-Results": "0"})
+            if request.url.params.get("itemType") == "note":
+                calls["notes"] += 1
+                return httpx.Response(200, json=[scoped_note], headers={"Total-Results": "1"})
+            if request.url.params.get("itemKey") == "ITEM9001":
+                return httpx.Response(200, json=[scoped_item])
+        if request.method == "GET" and request.url.path == "/users/999999/items/top":
+            raise AssertionError("payload fallback should scan notes, not /items/top")
+        if request.method == "GET" and request.url.path == "/users/999999/items/ITEM9001/children":
+            calls["children"] += 1
+            return httpx.Response(200, json=[scoped_note])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.get(
+        "/v1/items/search-advanced",
+        headers={**auth_headers, "X-Zotero-API-Key": "scoped-key"},
+        params={
+            "q": "quick_local_pdf_spot_check",
+            "fields": "note",
+            "sort": "relevance",
+            "includeAttachments": "false",
+            "includeNotes": "false",
+        },
+    )
+
+    assert response.status_code == 200
+    assert calls == {"search": 1, "notes": 1, "children": 1}
+    assert response.json()["count"] == 1
+    assert response.json()["items"][0]["itemKey"] == "ITEM9001"
+    assert response.json()["items"][0]["searchHints"][0]["field"] == "aiNote:paper.summary"
+
+
+@pytest.mark.asyncio
+async def test_request_scoped_note_search_reuses_note_cache_across_requests(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    scoped_item = parent_item(key="ITEM9002", title="Scoped Cached Payload Paper")
+    note_html = NoteRenderer("zbridge").render(
+        title="Cached Quick Read",
+        body_markdown="Visible body without the token.",
+        agent="codex",
+        note_type="paper.summary",
+        model=None,
+        source_attachment_key=None,
+        source_cursor_start=None,
+        source_cursor_end=None,
+        schema_version="1.0",
+        payload={"readingMode": "cache_me_once"},
+        provenance=[],
+        mode="replace",
+    )
+    scoped_note = note_item(
+        key="NOTE9002",
+        parent="ITEM9002",
+        note_html=note_html,
+        tags=[
+            "zbridge",
+            "zbridge:agent:codex",
+            "zbridge:type:paper.summary",
+            "zbridge:slot:default",
+        ],
+    )
+    calls = {"search": 0, "notes": 0, "children": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == "/keys/scoped-key":
+            return httpx.Response(200, json={"userID": 999999})
+        if request.method == "GET" and request.url.path == "/users/999999/items":
+            if request.url.params.get("q") == "cache_me_once":
+                calls["search"] += 1
+                return httpx.Response(200, json=[], headers={"Total-Results": "0"})
+            if request.url.params.get("itemType") == "note":
+                calls["notes"] += 1
+                return httpx.Response(200, json=[scoped_note], headers={"Total-Results": "1"})
+            if request.url.params.get("itemKey") == "ITEM9002":
+                return httpx.Response(200, json=[scoped_item])
+        if request.method == "GET" and request.url.path == "/users/999999/items/ITEM9002/children":
+            calls["children"] += 1
+            return httpx.Response(200, json=[scoped_note])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    for _ in range(2):
+        response = await async_client.get(
+            "/v1/items/search-advanced",
+            headers={**auth_headers, "X-Zotero-API-Key": "scoped-key"},
+            params={
+                "q": "cache_me_once",
+                "fields": "note",
+                "sort": "relevance",
+                "includeAttachments": "false",
+                "includeNotes": "false",
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["count"] == 1
+        assert response.json()["items"][0]["itemKey"] == "ITEM9002"
+
+    assert calls == {"search": 2, "notes": 1, "children": 2}
 
 
 @pytest.mark.asyncio
@@ -634,6 +1065,80 @@ async def test_structured_ai_note_round_trip_and_note_search(
     assert search_response.status_code == 200
     assert search_response.json()["items"][0]["itemKey"] == "ITEM0001"
     assert search_response.json()["items"][0]["searchHints"][0]["field"] == "aiNote:paper.findings"
+
+
+@pytest.mark.asyncio
+async def test_ai_note_append_preserves_schema_version_in_response(
+    async_client: httpx.AsyncClient,
+    auth_headers: dict[str, str],
+    respx_mock: respx.MockRouter,
+) -> None:
+    from app.services.note_renderer import NoteRenderer
+
+    parent = parent_item()
+    renderer = NoteRenderer("zbridge")
+    existing_note = note_item(
+        key="NOTE0002",
+        note_html=renderer.render(
+            title="Key Findings",
+            body_markdown="Primary finding",
+            agent="codex",
+            note_type="paper.findings",
+            model=None,
+            source_attachment_key=None,
+            source_cursor_start=None,
+            source_cursor_end=None,
+            schema_version="1.0",
+            payload={"dataset": "benchmark-42"},
+            provenance=[],
+            mode="replace",
+        ),
+        tags=[
+            "zbridge",
+            "zbridge:agent:codex",
+            "zbridge:type:paper.findings",
+            "zbridge:slot:default",
+        ],
+    )
+    state: dict[str, Any] = {"note": existing_note, "version": 1}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001":
+            return httpx.Response(200, json=parent)
+        if request.method == "GET" and request.url.path == "/users/123456/items/ITEM0001/children":
+            return httpx.Response(200, json=[state["note"]])
+        if request.method == "PATCH" and request.url.path == "/users/123456/items/NOTE0002":
+            payload = json.loads(request.content.decode("utf-8"))
+            state["version"] += 1
+            state["note"] = zotero_item(
+                "NOTE0002",
+                {
+                    **state["note"]["data"],
+                    "note": payload["note"],
+                    "tags": payload["tags"],
+                },
+                version=state["version"],
+            )
+            return httpx.Response(204)
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    respx_mock.route().mock(side_effect=handler)
+
+    response = await async_client.post(
+        "/v1/items/ITEM0001/notes/upsert-ai-note",
+        headers=auth_headers,
+        json={
+            "agent": "codex",
+            "noteType": "paper.findings",
+            "slot": "default",
+            "mode": "append",
+            "title": "Key Findings",
+            "bodyMarkdown": "Secondary finding",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["schemaVersion"] == "1.0"
 
 
 @pytest.mark.asyncio

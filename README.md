@@ -46,6 +46,21 @@ The bridge does not read PDFs for the model. It securely delivers attachments so
 - proxy download hides Zotero credentials
 - `fileUrl` uploads are guarded against SSRF, unsafe redirects, oversized files, and non-PDF payloads
 
+## Simple Multi-User Mode
+
+All normal API calls now authenticate directly with the caller's Zotero key:
+
+- `X-Zotero-API-Key: <caller_zotero_key>`
+
+The bridge resolves that key to the caller's personal Zotero user library and executes the request against that library. This is the simplest multi-user mode.
+
+Constraints:
+
+- requests without `X-Zotero-API-Key` are rejected
+- it targets the personal user library behind the supplied Zotero key
+- the per-request mode disables the local search index to avoid mixing data across libraries
+- attachment handoff tokens remain scoped to the originating Zotero key and library
+
 ## Structured Notes
 
 Structured AI notes are stored in Zotero child notes as:

@@ -11,8 +11,8 @@ Use this skill when the task involves Zotero-backed paper workflows through the 
 
 - `BRIDGE_BASE_URL`
   Default: `https://hblu.top:8888`
-- `BRIDGE_API_KEY`
-  Send as `Authorization: Bearer $BRIDGE_API_KEY`
+- `ZOTERO_API_KEY`
+  Send as `X-Zotero-API-Key: $ZOTERO_API_KEY`
 
 ## Core Rules
 

@@ -4,7 +4,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from app.auth import require_bearer_auth
 from app.config import get_settings
 from app.dependencies import get_bridge_service
 from app.models import (
@@ -39,7 +38,6 @@ from app.services.bridge_service import BridgeService
 router = APIRouter(
     prefix="/v1/items",
     tags=["Items"],
-    dependencies=[Depends(require_bearer_auth)],
 )
 BridgeDep = Annotated[BridgeService, Depends(get_bridge_service)]
 

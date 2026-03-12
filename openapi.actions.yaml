@@ -10,6 +10,15 @@ paths:
       - Health
       summary: Get Health
       operationId: getHealth
+      parameters:
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -17,20 +26,33 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
-      security:
-      - HTTPBearer: []
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /v1/papers/add-by-doi:
     post:
       tags:
       - Papers
       summary: Add By Doi
       operationId: addByDOI
+      parameters:
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/AddByDOIRequest'
-        required: true
       responses:
         '200':
           description: Successful Response
@@ -44,20 +66,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
   /v1/papers/import-metadata:
     post:
       tags:
       - Papers
       summary: Import Metadata
       operationId: importPaperMetadata
+      parameters:
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/ImportMetadataRequest'
-        required: true
       responses:
         '200':
           description: Successful Response
@@ -71,20 +100,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
   /v1/papers/import-discovery-hit:
     post:
       tags:
       - Papers
       summary: Import Discovery Hit
       operationId: importDiscoveryHit
+      parameters:
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/ImportDiscoveryHitRequest'
-        required: true
       responses:
         '200':
           description: Successful Response
@@ -98,20 +134,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
   /v1/papers/upload-pdf-action:
     post:
       tags:
       - Papers
       summary: Upload Pdf Action
       operationId: uploadPdfAction
+      parameters:
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/UploadPdfActionRequest'
-        required: true
       responses:
         '200':
           description: Successful Response
@@ -125,16 +168,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
   /v1/items:
     get:
       tags:
       - Items
       summary: List Items
       operationId: listItems
-      security:
-      - HTTPBearer: []
       parameters:
       - name: start
         in: query
@@ -207,6 +246,14 @@ paths:
           pattern: ^(asc|desc)$
           default: desc
           title: Direction
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -226,8 +273,6 @@ paths:
       - Items
       summary: Search Items
       operationId: searchItems
-      security:
-      - HTTPBearer: []
       parameters:
       - name: q
         in: query
@@ -308,6 +353,14 @@ paths:
             pattern: ^(asc|desc)$
           - type: 'null'
           title: Direction
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -327,8 +380,6 @@ paths:
       - Items
       summary: Search Items Advanced
       operationId: searchItemsAdvanced
-      security:
-      - HTTPBearer: []
       parameters:
       - name: q
         in: query
@@ -482,6 +533,14 @@ paths:
             pattern: ^(asc|desc)$
           - type: 'null'
           title: Direction
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -501,12 +560,21 @@ paths:
       - Items
       summary: Batch Get Items
       operationId: batchGetItems
+      parameters:
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/BatchItemRequest'
-        required: true
       responses:
         '200':
           description: Successful Response
@@ -520,16 +588,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
   /v1/items/resolve:
     get:
       tags:
       - Items
       summary: Resolve Items
       operationId: resolveItems
-      security:
-      - HTTPBearer: []
       parameters:
       - name: doi
         in: query
@@ -594,6 +658,14 @@ paths:
           minimum: 1
           default: 10
           title: Limit
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -613,8 +685,6 @@ paths:
       - Items
       summary: Find Duplicate Items
       operationId: findDuplicateItems
-      security:
-      - HTTPBearer: []
       parameters:
       - name: start
         in: query
@@ -680,6 +750,14 @@ paths:
           type: boolean
           default: false
           title: Includenotes
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -699,8 +777,6 @@ paths:
       - Items
       summary: List Item Changes
       operationId: listItemChanges
-      security:
-      - HTTPBearer: []
       parameters:
       - name: start
         in: query
@@ -750,6 +826,14 @@ paths:
           type: boolean
           default: false
           title: Includenotes
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -769,12 +853,21 @@ paths:
       - Items
       summary: Build Review Pack
       operationId: buildReviewPack
+      parameters:
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/ReviewPackRequest'
-        required: true
       responses:
         '200':
           description: Successful Response
@@ -788,20 +881,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
   /v1/items/duplicates/merge:
     post:
       tags:
       - Items
       summary: Merge Duplicate Items
       operationId: mergeDuplicateItems
+      parameters:
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/MergeDuplicateItemsRequest'
-        required: true
       responses:
         '200':
           description: Successful Response
@@ -815,16 +915,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
   /v1/items/{itemKey}:
     get:
       tags:
       - Items
       summary: Get Item Detail
       operationId: getItemDetail
-      security:
-      - HTTPBearer: []
       parameters:
       - name: itemKey
         in: path
@@ -832,6 +928,14 @@ paths:
         schema:
           type: string
           title: Itemkey
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -851,8 +955,6 @@ paths:
       - Items
       summary: List Item Attachments
       operationId: listItemAttachments
-      security:
-      - HTTPBearer: []
       parameters:
       - name: itemKey
         in: path
@@ -860,6 +962,14 @@ paths:
         schema:
           type: string
           title: Itemkey
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -879,8 +989,6 @@ paths:
       - Items
       summary: List Item Notes
       operationId: listItemNotes
-      security:
-      - HTTPBearer: []
       parameters:
       - name: itemKey
         in: path
@@ -888,6 +996,14 @@ paths:
         schema:
           type: string
           title: Itemkey
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -906,8 +1022,6 @@ paths:
       - Items
       summary: Create Item Note
       operationId: createItemNote
-      security:
-      - HTTPBearer: []
       parameters:
       - name: itemKey
         in: path
@@ -915,6 +1029,14 @@ paths:
         schema:
           type: string
           title: Itemkey
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       requestBody:
         required: true
         content:
@@ -940,8 +1062,6 @@ paths:
       - Items
       summary: Add Item Tags
       operationId: addItemTags
-      security:
-      - HTTPBearer: []
       parameters:
       - name: itemKey
         in: path
@@ -949,6 +1069,14 @@ paths:
         schema:
           type: string
           title: Itemkey
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       requestBody:
         required: true
         content:
@@ -974,8 +1102,6 @@ paths:
       - Items
       summary: Remove Item Tag
       operationId: removeItemTag
-      security:
-      - HTTPBearer: []
       parameters:
       - name: itemKey
         in: path
@@ -989,6 +1115,14 @@ paths:
         schema:
           type: string
           title: Tag
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -1008,8 +1142,6 @@ paths:
       - Items
       summary: Add Item To Collections
       operationId: addItemToCollections
-      security:
-      - HTTPBearer: []
       parameters:
       - name: itemKey
         in: path
@@ -1017,6 +1149,14 @@ paths:
         schema:
           type: string
           title: Itemkey
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       requestBody:
         required: true
         content:
@@ -1042,8 +1182,6 @@ paths:
       - Items
       summary: Get Related Items
       operationId: getRelatedItems
-      security:
-      - HTTPBearer: []
       parameters:
       - name: itemKey
         in: path
@@ -1065,6 +1203,14 @@ paths:
           type: boolean
           default: false
           title: Includenotes
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -1084,8 +1230,6 @@ paths:
       - Items
       summary: Upsert Ai Note
       operationId: upsertAiNote
-      security:
-      - HTTPBearer: []
       parameters:
       - name: itemKey
         in: path
@@ -1093,6 +1237,14 @@ paths:
         schema:
           type: string
           title: Itemkey
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       requestBody:
         required: true
         content:
@@ -1118,8 +1270,6 @@ paths:
       - Items
       summary: Get Item Citation
       operationId: getItemCitation
-      security:
-      - HTTPBearer: []
       parameters:
       - name: itemKey
         in: path
@@ -1150,6 +1300,14 @@ paths:
           type: boolean
           default: false
           title: Linkwrap
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -1169,8 +1327,6 @@ paths:
       - Attachments
       summary: Get Attachment Detail
       operationId: getAttachmentDetail
-      security:
-      - HTTPBearer: []
       parameters:
       - name: attachmentKey
         in: path
@@ -1178,6 +1334,14 @@ paths:
         schema:
           type: string
           title: Attachmentkey
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -1197,8 +1361,6 @@ paths:
       - Attachments
       summary: Create Attachment Handoff
       operationId: createAttachmentHandoff
-      security:
-      - HTTPBearer: []
       parameters:
       - name: attachmentKey
         in: path
@@ -1206,6 +1368,14 @@ paths:
         schema:
           type: string
           title: Attachmentkey
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       requestBody:
         required: true
         content:
@@ -1262,6 +1432,15 @@ paths:
       - Library
       summary: Get Library Stats
       operationId: getLibraryStats
+      parameters:
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -1269,16 +1448,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LibraryStatsResponse'
-      security:
-      - HTTPBearer: []
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /v1/collections:
     get:
       tags:
       - Library
       summary: List Collections
       operationId: listCollections
-      security:
-      - HTTPBearer: []
       parameters:
       - name: start
         in: query
@@ -1304,6 +1485,14 @@ paths:
           type: boolean
           default: false
           title: Toplevelonly
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -1323,8 +1512,6 @@ paths:
       - Library
       summary: List Tags
       operationId: listTags
-      security:
-      - HTTPBearer: []
       parameters:
       - name: start
         in: query
@@ -1366,6 +1553,14 @@ paths:
           - type: string
           - type: 'null'
           title: Collectionkey
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -1385,8 +1580,6 @@ paths:
       - Discovery
       summary: Search Discovery
       operationId: searchDiscovery
-      security:
-      - HTTPBearer: []
       parameters:
       - name: q
         in: query
@@ -1456,6 +1649,14 @@ paths:
           pattern: ^(relevance|cited_by|recent)$
           default: relevance
           title: Sort
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -1475,8 +1676,6 @@ paths:
       - Notes
       summary: Get Note Detail
       operationId: getNoteDetail
-      security:
-      - HTTPBearer: []
       parameters:
       - name: noteKey
         in: path
@@ -1484,6 +1683,14 @@ paths:
         schema:
           type: string
           title: Notekey
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -1502,8 +1709,6 @@ paths:
       - Notes
       summary: Update Note
       operationId: updateNote
-      security:
-      - HTTPBearer: []
       parameters:
       - name: noteKey
         in: path
@@ -1511,6 +1716,14 @@ paths:
         schema:
           type: string
           title: Notekey
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       requestBody:
         required: true
         content:
@@ -1535,8 +1748,6 @@ paths:
       - Notes
       summary: Delete Note
       operationId: deleteNote
-      security:
-      - HTTPBearer: []
       parameters:
       - name: noteKey
         in: path
@@ -1544,6 +1755,14 @@ paths:
         schema:
           type: string
           title: Notekey
+      - name: X-Zotero-API-Key
+        in: header
+        required: true
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Zotero-Api-Key
       responses:
         '200':
           description: Successful Response
@@ -3827,7 +4046,3 @@ components:
       - msg
       - type
       title: ValidationError
-  securitySchemes:
-    HTTPBearer:
-      type: http
-      scheme: bearer

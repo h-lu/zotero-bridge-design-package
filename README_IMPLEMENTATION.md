@@ -9,6 +9,7 @@ Version: `2.0.0`
 ## Implemented Capabilities
 
 - health and upstream-key health reporting
+- request-scoped Zotero routing via `X-Zotero-API-Key`
 - library listing, resolve, changes, duplicates, merge
 - item search and advanced search over metadata plus notes
 - DOI ingest
@@ -42,3 +43,5 @@ Version: `2.0.0`
 - downloads are size-limited
 - uploads accept PDF only, validated by file signature and MIME handling
 - attachment proxy download never exposes Zotero credentials
+- requests without `X-Zotero-API-Key` are rejected
+- request-scoped Zotero mode resolves the caller key to a personal user library and disables the local search index for that request

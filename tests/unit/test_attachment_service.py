@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import httpx
 import pytest
 
 from app.config import get_settings
@@ -58,40 +59,85 @@ class FakeZoteroClient:
 @pytest.mark.asyncio
 async def test_attachment_handoff_generates_download_url(test_env: None) -> None:
     settings = get_settings()
-    service = AttachmentService(settings=settings, zotero_client=FakeZoteroClient())
+    async with httpx.AsyncClient() as http_client:
+        service = AttachmentService(
+            settings=settings,
+            zotero_client=FakeZoteroClient(),
+            http_client=http_client,
+        )
 
-    response = await service.create_handoff(
-        attachment_key="ATTACH01",
-        payload=AttachmentHandoffRequest(),
-        download_url="https://bridge.example.com/v1/attachments/download/{token}",
-    )
+        response = await service.create_handoff(
+            attachment_key="ATTACH01",
+            payload=AttachmentHandoffRequest(),
+            download_url="https://bridge.example.com/v1/attachments/download/{token}",
+        )
 
-    assert response.attachmentKey == "ATTACH01"
-    assert response.downloadUrl.startswith("https://bridge.example.com/v1/attachments/download/tkn_")
+        assert response.attachmentKey == "ATTACH01"
+        assert response.downloadUrl.startswith(
+            "https://bridge.example.com/v1/attachments/download/tkn_"
+        )
 
 
 @pytest.mark.asyncio
 async def test_attachment_handoff_invalid_and_expired_tokens_fail(test_env: None) -> None:
     settings = get_settings()
-    service = AttachmentService(settings=settings, zotero_client=FakeZoteroClient())
+    async with httpx.AsyncClient() as http_client:
+        service = AttachmentService(
+            settings=settings,
+            zotero_client=FakeZoteroClient(),
+            http_client=http_client,
+        )
 
-    with pytest.raises(BridgeError) as invalid_exc:
-        await service.download_attachment_by_token("bogus")
+        with pytest.raises(BridgeError) as invalid_exc:
+            await service.download_attachment_by_token("bogus")
 
-    assert invalid_exc.value.code == "INVALID_DOWNLOAD_TOKEN"
+        assert invalid_exc.value.code == "INVALID_DOWNLOAD_TOKEN"
 
-    response = await service.create_handoff(
-        attachment_key="ATTACH01",
-        payload=AttachmentHandoffRequest(),
-        download_url="https://bridge.example.com/v1/attachments/download/{token}",
+        response = await service.create_handoff(
+            attachment_key="ATTACH01",
+            payload=AttachmentHandoffRequest(),
+            download_url="https://bridge.example.com/v1/attachments/download/{token}",
+        )
+        token = response.downloadUrl.rsplit("/", 1)[-1]
+        service._tokens[token] = service._tokens[token].__class__(
+            attachment_key="ATTACH01",
+            expires_at=datetime.now(UTC) - timedelta(seconds=1),
+            zotero_api_key=settings.zotero_api_key,
+            zotero_library_type=settings.zotero_library_type,
+            zotero_library_id=settings.zotero_library_id,
+        )
+
+        with pytest.raises(BridgeError) as expired_exc:
+            await service.download_attachment_by_token(token)
+
+        assert expired_exc.value.code == "EXPIRED_DOWNLOAD_TOKEN"
+
+
+@pytest.mark.asyncio
+async def test_linked_file_attachments_are_not_downloadable(test_env: None) -> None:
+    settings = get_settings()
+    zotero_client = FakeZoteroClient()
+    zotero_client.items["ATTACH02"] = zotero_attachment(
+        "ATTACH02",
+        filename="local.pdf",
+        link_mode="linked_file",
     )
-    token = response.downloadUrl.rsplit("/", 1)[-1]
-    service._tokens[token] = service._tokens[token].__class__(
-        attachment_key="ATTACH01",
-        expires_at=datetime.now(UTC) - timedelta(seconds=1),
-    )
+    async with httpx.AsyncClient() as http_client:
+        service = AttachmentService(
+            settings=settings,
+            zotero_client=zotero_client,
+            http_client=http_client,
+        )
 
-    with pytest.raises(BridgeError) as expired_exc:
-        await service.download_attachment_by_token(token)
+        detail = await service.get_attachment_detail("ATTACH02")
 
-    assert expired_exc.value.code == "EXPIRED_DOWNLOAD_TOKEN"
+        assert detail.attachment.downloadable is False
+
+        with pytest.raises(BridgeError) as exc:
+            await service.create_handoff(
+                attachment_key="ATTACH02",
+                payload=AttachmentHandoffRequest(),
+                download_url="https://bridge.example.com/v1/attachments/download/{token}",
+            )
+
+        assert exc.value.code == "BAD_REQUEST"

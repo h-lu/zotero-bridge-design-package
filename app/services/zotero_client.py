@@ -78,6 +78,42 @@ class ZoteroClient:
         items = payload if isinstance(payload, list) else []
         return items, self._total_results(response)
 
+    async def list_items_page_raw(
+        self,
+        *,
+        start: int,
+        limit: int,
+        item_type: str | None,
+        collection_key: str | None,
+        tag: str | None,
+        sort: str | None,
+        direction: str | None,
+        top_level: bool,
+    ) -> tuple[list[dict[str, Any]], int]:
+        params: dict[str, Any] = {
+            "format": "json",
+            "start": start,
+            "limit": limit,
+        }
+        if item_type:
+            params["itemType"] = item_type
+        if tag:
+            params["tag"] = tag
+        if sort:
+            params["sort"] = sort
+        if direction:
+            params["direction"] = direction
+
+        response = await self._request(
+            "GET",
+            self._items_path(collection_key=collection_key, top_level=top_level),
+            params=params,
+            expected_statuses={200},
+        )
+        payload = response.json()
+        items = payload if isinstance(payload, list) else []
+        return items, self._total_results(response)
+
     async def list_top_level_items_raw(
         self,
         *,
@@ -89,27 +125,16 @@ class ZoteroClient:
         sort: str,
         direction: str,
     ) -> tuple[list[dict[str, Any]], int]:
-        params: dict[str, Any] = {
-            "format": "json",
-            "start": start,
-            "limit": limit,
-            "sort": sort,
-            "direction": direction,
-        }
-        if item_type:
-            params["itemType"] = item_type
-        if tag:
-            params["tag"] = tag
-
-        response = await self._request(
-            "GET",
-            self._items_path(collection_key=collection_key, top_level=True),
-            params=params,
-            expected_statuses={200},
+        return await self.list_items_page_raw(
+            start=start,
+            limit=limit,
+            item_type=item_type,
+            collection_key=collection_key,
+            tag=tag,
+            sort=sort,
+            direction=direction,
+            top_level=True,
         )
-        payload = response.json()
-        items = payload if isinstance(payload, list) else []
-        return items, self._total_results(response)
 
     async def list_top_level_item_versions(
         self,

@@ -17,13 +17,13 @@ from app.config import get_settings  # noqa: E402
 
 @pytest.fixture
 def test_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("BRIDGE_API_KEY", "bridge-test-token")
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.setenv("ZOTERO_API_BASE", "https://api.zotero.org")
     monkeypatch.setenv("ZOTERO_LIBRARY_TYPE", "user")
     monkeypatch.setenv("ZOTERO_LIBRARY_ID", "123456")
     monkeypatch.setenv("ZOTERO_API_KEY", "zotero-test-key")
     monkeypatch.setenv("PUBLIC_BASE_URL", "")
+    monkeypatch.setenv("ENABLE_REQUEST_SCOPED_ZOTERO_KEY", "true")
     monkeypatch.setenv("DEFAULT_CITATION_STYLE", "apa")
     monkeypatch.setenv("DEFAULT_CITATION_LOCALE", "en-US")
     monkeypatch.setenv("ENABLE_LOCAL_SEARCH_INDEX", "true")
@@ -52,14 +52,16 @@ async def async_client(test_env: None) -> AsyncGenerator[AsyncClient, None]:
 
 @pytest.fixture
 def auth_headers() -> dict[str, str]:
-    return {"Authorization": "Bearer bridge-test-token"}
+    return {"X-Zotero-API-Key": "zotero-test-key"}
 
 
 @pytest.fixture(autouse=True)
 def patch_example_download_host_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services.remote_fetch_guard import RemoteFetchGuard
+    from app.services.zotero_scope_resolver import ZoteroScopeResolver, ZoteroUserScope
 
     original = RemoteFetchGuard._resolve_download_host_ips
+    original_resolve_scope = ZoteroScopeResolver.resolve_user_scope
 
     async def patched(
         self: RemoteFetchGuard,
@@ -71,4 +73,17 @@ def patch_example_download_host_resolution(monkeypatch: pytest.MonkeyPatch) -> N
             return [ipaddress.ip_address("93.184.216.34")]
         return await original(self, host, port=port)
 
+    async def patched_scope_resolver(
+        self: ZoteroScopeResolver,
+        api_key: str,
+    ) -> ZoteroUserScope:
+        if api_key == "zotero-test-key":
+            return ZoteroUserScope(
+                api_key="zotero-test-key",
+                library_type="user",
+                library_id="123456",
+            )
+        return await original_resolve_scope(self, api_key)
+
     monkeypatch.setattr(RemoteFetchGuard, "_resolve_download_host_ips", patched)
+    monkeypatch.setattr(ZoteroScopeResolver, "resolve_user_scope", patched_scope_resolver)
